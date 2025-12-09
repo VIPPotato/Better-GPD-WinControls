@@ -1,0 +1,858 @@
+using System;
+using System.Windows.Forms;
+using System.Drawing;
+using System.Collections.Generic;
+using GpdControl;
+
+namespace GpdGui
+{
+    public class MainForm : Form
+    {
+        // private ListBox keyList;
+        // private ComboBox valueCombo;
+        private Button applyButton;
+        private Button reloadButton;
+        private Label statusLabel;
+        private Config currentConfig;
+        private GpdDevice device;
+
+        public MainForm()
+        {
+            this.Text = "GPD Win 4 Controller Access";
+            this.Size = new Size(600, 500);
+            this.StartPosition = FormStartPosition.CenterScreen;
+
+            // Layout
+            TableLayoutPanel mainLayout = new TableLayoutPanel();
+            mainLayout.Dock = DockStyle.Fill;
+            mainLayout.RowCount = 3;
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); // Top buttons
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Content
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30)); // Status
+            this.Controls.Add(mainLayout);
+
+            // Top Buttons
+            FlowLayoutPanel buttonPanel = new FlowLayoutPanel();
+            buttonPanel.Dock = DockStyle.Fill;
+            reloadButton = new Button();
+            reloadButton.Text = "Reload from Device";
+            reloadButton.AutoSize = true;
+            reloadButton.Click += new EventHandler(ReloadButton_Click);
+            
+            applyButton = new Button();
+            applyButton.Text = "Apply Changes";
+            applyButton.AutoSize = true;
+            applyButton.Click += new EventHandler(ApplyButton_Click);
+            
+            Button resetButton = new Button();
+            resetButton.Text = "Reset to Defaults";
+            resetButton.AutoSize = true;
+            resetButton.Click += new EventHandler(ResetButton_Click);
+
+            buttonPanel.Controls.Add(reloadButton);
+            buttonPanel.Controls.Add(applyButton);
+            buttonPanel.Controls.Add(resetButton);
+            mainLayout.Controls.Add(buttonPanel, 0, 0);
+
+            // Content Tabs
+            TabControl tabControl = new TabControl();
+            tabControl.Dock = DockStyle.Fill;
+            mainLayout.Controls.Add(tabControl, 0, 1);
+
+            // 1. Buttons Tab
+            TabPage buttonsTab = new TabPage("Buttons");
+            tabControl.TabPages.Add(buttonsTab);
+            CreateListTab(buttonsTab, "Key");
+
+            // 2. Macros Tab
+            TabPage macrosTab = new TabPage("Macros");
+            tabControl.TabPages.Add(macrosTab);
+            CreateListTab(macrosTab, "Macro");
+
+            // 3. Settings Tab
+            TabPage settingsTab = new TabPage("Settings");
+            tabControl.TabPages.Add(settingsTab);
+            CreateSettingsTab(settingsTab);
+
+            // 4. Profiles Tab
+            TabPage profilesTab = new TabPage("Profiles");
+            tabControl.TabPages.Add(profilesTab);
+            CreateProfilesTab(profilesTab);
+
+            // Status
+            statusLabel = new Label();
+            statusLabel.Dock = DockStyle.Fill;
+            statusLabel.TextAlign = ContentAlignment.MiddleLeft;
+            statusLabel.Text = "Ready.";
+            mainLayout.Controls.Add(statusLabel, 0, 2);
+
+            this.Shown += (s, e) => 
+            {
+                Application.DoEvents();
+                try
+                {
+                    device = new GpdDevice();
+                    device.Open();
+                    LoadConfig();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Could not connect to device: " + ex.Message);
+                    statusLabel.Text = "Disconnected.";
+                    // Do not disable form so user can try Reset/Reload
+                }
+            };
+        }
+
+        private Dictionary<string, ListBox> tabLists = new Dictionary<string, ListBox>();
+        private Dictionary<string, ComboBox> tabCombos = new Dictionary<string, ComboBox>();
+        // For settings tab controls
+        private Dictionary<string, Control> settingControls = new Dictionary<string, Control>();
+
+        private void CreateListTab(TabPage tab, string filterType)
+        {
+            SplitContainer contentSplit = new SplitContainer();
+            contentSplit.Dock = DockStyle.Fill;
+            tab.Controls.Add(contentSplit);
+
+            ListBox list = new ListBox();
+            list.Dock = DockStyle.Fill;
+            list.Tag = filterType; // Store filter
+            list.SelectedIndexChanged += new EventHandler(KeyList_SelectedIndexChanged);
+            contentSplit.Panel1.Controls.Add(list);
+            tabLists[filterType] = list;
+
+            FlowLayoutPanel editPanel = new FlowLayoutPanel();
+            editPanel.Dock = DockStyle.Fill;
+            editPanel.FlowDirection = FlowDirection.TopDown;
+            Label lbl = new Label();
+            lbl.Text = "New Value:";
+            lbl.AutoSize = true;
+            editPanel.Controls.Add(lbl);
+            
+            ComboBox combo = new ComboBox();
+            combo.Width = 200;
+            combo.DropDownStyle = ComboBoxStyle.DropDownList;
+            combo.Tag = list; // Link back to list
+            
+            if (filterType == "Key" || filterType == "Macro")
+            {
+                combo.AutoCompleteSource = AutoCompleteSource.ListItems;
+                combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                foreach (string key in KeyCodes.Map.Keys) combo.Items.Add(key);
+            }
+            // For Macros, we might want delays (Millis) too? 
+            // Handled by filter logic later.
+
+            combo.SelectedIndexChanged += new EventHandler(ValueCombo_SelectedIndexChanged);
+            combo.LostFocus += new EventHandler(ValueCombo_LostFocus);
+            
+            editPanel.Controls.Add(combo);
+
+            if (filterType == "Key" || filterType == "Macro")
+            {
+                Button capBtn = new Button();
+                capBtn.Text = "Capture Key";
+                capBtn.AutoSize = true;
+                capBtn.Tag = combo; // Link to combo
+                capBtn.Click += CaptureKey_Click;
+                editPanel.Controls.Add(capBtn);
+            }
+
+            contentSplit.Panel2.Controls.Add(editPanel);
+            tabCombos[filterType] = combo;
+        }
+
+        private void CreateSettingsTab(TabPage tab)
+        {
+            FlowLayoutPanel panel = new FlowLayoutPanel();
+            panel.Dock = DockStyle.Fill;
+            panel.FlowDirection = FlowDirection.TopDown;
+            panel.AutoScroll = true;
+            panel.Padding = new Padding(10);
+            tab.Controls.Add(panel);
+            
+            // We will populate this dynamically in RefreshList or statically here?
+            // Statically is better for layout, but we need the FieldDefs.
+            // Since FieldDefs are static in Config, we can access them.
+            
+            foreach (Config.FieldDef def in Config.Fields)
+            {
+                if (def.Type == "Key" || def.Type == "Millis") continue; // Skip keys/macros here
+                // This catches Rumble, LedMode, Colour, Signed (Deadzone)
+                
+                Panel row = new Panel();
+                row.Width = 550;
+                row.Height = 40;
+                
+                Label lbl = new Label();
+                lbl.Text = def.Desc + ":";
+                lbl.Width = 200;
+                lbl.Location = new Point(0, 8);
+                row.Controls.Add(lbl);
+                
+                Control inputCtrl = null;
+                
+                if (def.Type == "Rumble")
+                {
+                    ComboBox cb = new ComboBox();
+                    cb.DropDownStyle = ComboBoxStyle.DropDownList;
+                    cb.Items.Add("Off (0)");
+                    cb.Items.Add("Low (1)");
+                    cb.Items.Add("High (2)");
+                    inputCtrl = cb;
+                }
+                else if (def.Type == "LedMode")
+                {
+                    ComboBox cb = new ComboBox();
+                    cb.DropDownStyle = ComboBoxStyle.DropDownList;
+                    cb.Items.Add("Off (0)");
+                    cb.Items.Add("Solid (1)");
+                    cb.Items.Add("Breathe (0x11)");
+                    cb.Items.Add("Rotate (0x21)");
+                    inputCtrl = cb;
+                }
+                else if (def.Type == "Colour")
+                {
+                    Button btn = new Button();
+                    btn.Text = "Pick Color";
+                    btn.Click += (s, e) => {
+                        ColorDialog cd = new ColorDialog();
+                        if (cd.ShowDialog() == DialogResult.OK)
+                        {
+                            btn.BackColor = cd.Color;
+                            // Store value?
+                            currentConfig.Set(def.Name, string.Format("{0:X2}{1:X2}{2:X2}", cd.Color.B, cd.Color.G, cd.Color.R)); // RGB or BGR?
+                            // Config GetValue uses R+2, R+1, R. (BGR in memory?)
+                            // raw[offset]=B, raw+1=G, raw+2=R.
+                            // Set expects RRGGBB string.
+                            // Let's fix Set logic later if needed.
+                        }
+                    };
+                    inputCtrl = btn;
+                }
+                else if (def.Type == "Signed")
+                {
+                    NumericUpDown nud = new NumericUpDown();
+                    nud.Minimum = -128;
+                    nud.Maximum = 127;
+                    inputCtrl = nud;
+                }
+                
+                if (inputCtrl != null)
+                {
+                    inputCtrl.Location = new Point(210, 5);
+                    inputCtrl.Width = 150;
+                    inputCtrl.Tag = def; // Store field def
+                    // Add change handler
+                    if (inputCtrl is ComboBox) ((ComboBox)inputCtrl).SelectedIndexChanged += Setting_Changed;
+                    if (inputCtrl is NumericUpDown) ((NumericUpDown)inputCtrl).ValueChanged += Setting_Changed;
+                    
+                    row.Controls.Add(inputCtrl);
+                    settingControls[def.Name] = inputCtrl;
+                }
+                
+                panel.Controls.Add(row);
+            }
+        }
+
+        private ListBox profilesList;
+
+        private void CreateProfilesTab(TabPage tab)
+        {
+            SplitContainer split = new SplitContainer();
+            split.Dock = DockStyle.Fill;
+            tab.Controls.Add(split);
+
+            profilesList = new ListBox();
+            profilesList.Dock = DockStyle.Fill;
+            split.Panel1.Controls.Add(profilesList);
+
+            FlowLayoutPanel buttonPanel = new FlowLayoutPanel();
+            buttonPanel.Dock = DockStyle.Fill;
+            buttonPanel.FlowDirection = FlowDirection.TopDown;
+            split.Panel2.Controls.Add(buttonPanel);
+
+            Button newBtn = new Button(); newBtn.Text = "New Profile"; newBtn.Width = 150; newBtn.AutoSize = true;
+            newBtn.Click += NewProfile_Click;
+            buttonPanel.Controls.Add(newBtn);
+
+            Button delBtn = new Button(); delBtn.Text = "Delete Profile"; delBtn.Width = 150; delBtn.AutoSize = true;
+            delBtn.Click += DeleteProfile_Click;
+            buttonPanel.Controls.Add(delBtn);
+
+            Button editBtn = new Button(); editBtn.Text = "Edit (Load to GUI)"; editBtn.Width = 150; editBtn.AutoSize = true;
+            editBtn.Click += EditProfile_Click;
+            buttonPanel.Controls.Add(editBtn);
+
+            Button loadBtn = new Button(); loadBtn.Text = "Load (Write to Device)"; loadBtn.Width = 150; loadBtn.AutoSize = true;
+            loadBtn.Click += LoadProfile_Click;
+            buttonPanel.Controls.Add(loadBtn);
+
+            RefreshProfilesList();
+        }
+
+        private void RefreshProfilesList()
+        {
+            profilesList.Items.Clear();
+            string profilesDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+            if (System.IO.Directory.Exists(profilesDir))
+            {
+                string[] files = System.IO.Directory.GetFiles(profilesDir, "*.txt");
+                foreach (string file in files)
+                {
+                    profilesList.Items.Add(System.IO.Path.GetFileNameWithoutExtension(file));
+                }
+            }
+        }
+
+        private void NewProfile_Click(object sender, EventArgs e)
+        {
+            string name = InputBox.Show("New Profile", "Enter profile name:");
+            if (!string.IsNullOrWhiteSpace(name))
+            {
+                string profilesDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+                if (!System.IO.Directory.Exists(profilesDir)) System.IO.Directory.CreateDirectory(profilesDir);
+                
+                string path = System.IO.Path.Combine(profilesDir, name + ".txt");
+                try
+                {
+                    System.IO.File.WriteAllText(path, currentConfig.ToProfileString());
+                    RefreshProfilesList();
+                    MessageBox.Show("Profile created.");
+                }
+                catch (Exception ex) { MessageBox.Show("Error creating profile: " + ex.Message); }
+            }
+        }
+
+        private void DeleteProfile_Click(object sender, EventArgs e)
+        {
+            if (profilesList.SelectedItem == null) return;
+            string name = profilesList.SelectedItem.ToString();
+            if (MessageBox.Show("Delete profile '" + name + "'?", "Confirm", MessageBoxButtons.YesNo) == DialogResult.Yes)
+            {
+                string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles", name + ".txt");
+                try
+                {
+                    System.IO.File.Delete(path);
+                    RefreshProfilesList();
+                }
+                catch (Exception ex) { MessageBox.Show("Error deleting: " + ex.Message); }
+            }
+        }
+
+        private void EditProfile_Click(object sender, EventArgs e)
+        {
+            if (profilesList.SelectedItem == null) return;
+            string name = profilesList.SelectedItem.ToString();
+            string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles", name + ".txt");
+            try
+            {
+                string[] lines = System.IO.File.ReadAllLines(path);
+                Config.LoadFromProfile(currentConfig, lines);
+                RefreshList(); // Update GUI elements
+                statusLabel.Text = "Loaded profile '" + name + "' into GUI (not device).";
+                MessageBox.Show("Profile loaded into GUI. Click 'Apply Changes' to write to device.");
+            }
+            catch (Exception ex) { MessageBox.Show("Error loading: " + ex.Message); }
+        }
+
+        private void LoadProfile_Click(object sender, EventArgs e)
+        {
+            if (profilesList.SelectedItem == null) return;
+            string name = profilesList.SelectedItem.ToString();
+            if (MessageBox.Show("Write profile '" + name + "' to device firmware?", "Confirm Write", MessageBoxButtons.YesNo) == DialogResult.Yes)
+            {
+                string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles", name + ".txt");
+                try
+                {
+                    // Load to temp config or current? Current is fine as we are applying it.
+                    string[] lines = System.IO.File.ReadAllLines(path);
+                    Config.LoadFromProfile(currentConfig, lines);
+                    RefreshList(); // Sync GUI
+                    device.WriteConfig(currentConfig.Raw);
+                    statusLabel.Text = "Profile '" + name + "' written to device.";
+                    MessageBox.Show("Profile written successfully!");
+                }
+                catch (Exception ex) { MessageBox.Show("Error writing: " + ex.Message); }
+            }
+        }
+
+        private void Setting_Changed(object sender, EventArgs e)
+        {
+            Control ctrl = (Control)sender;
+            Config.FieldDef def = (Config.FieldDef)ctrl.Tag;
+            
+            try {
+                string val = "";
+                if (ctrl is ComboBox)
+                {
+                    int idx = ((ComboBox)ctrl).SelectedIndex;
+                    if (def.Type == "Rumble") val = idx.ToString();
+                    if (def.Type == "LedMode") 
+                    {
+                        if (idx == 0) val = "off";
+                        else if (idx == 1) val = "solid";
+                        else if (idx == 2) val = "breathe";
+                        else if (idx == 3) val = "rotate";
+                    }
+                }
+                else if (ctrl is NumericUpDown)
+                {
+                    val = ((int)((NumericUpDown)ctrl).Value).ToString();
+                }
+                
+                if (val != "") currentConfig.Set(def.Name, val);
+            } catch {}
+        }
+
+        private void LoadConfig()
+        {
+            try
+            {
+                statusLabel.Text = "Reading from device...";
+                Application.DoEvents();
+                byte[] data = device.ReadConfig();
+                currentConfig = new Config(data);
+                RefreshList();
+                statusLabel.Text = string.Format("Configuration loaded. Firmware: {0}", device.FirmwareVersion);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error reading config: " + ex.Message);
+                statusLabel.Text = "Error.";
+            }
+        }
+
+        private void RefreshList()
+        {
+            foreach (var kvp in tabLists) kvp.Value.Items.Clear();
+            
+            if (currentConfig != null)
+            {
+                foreach (Config.FieldDef def in Config.Fields)
+                {
+                    if (def.Type == "Key")
+                    {
+                        if (def.Name.Contains("delay")) continue; // Should be Millis type now?
+                        // Add to Buttons or Macros?
+                        // L4/R4 are macros.
+                        string target = (def.Name.StartsWith("l4") || def.Name.StartsWith("r4")) ? "Macro" : "Key";
+                        if (tabLists.ContainsKey(target))
+                            tabLists[target].Items.Add(new ConfigItem { Def = def, Config = currentConfig });
+                    }
+                    else if (def.Type == "Millis")
+                    {
+                        if (tabLists.ContainsKey("Macro"))
+                            tabLists["Macro"].Items.Add(new ConfigItem { Def = def, Config = currentConfig });
+                    }
+                    else
+                    {
+                        // Settings Tab
+                        if (settingControls.ContainsKey(def.Name))
+                        {
+                            Control ctrl = settingControls[def.Name];
+                            string val = currentConfig.GetValue(def);
+                            if (ctrl is ComboBox)
+                            {
+                                ComboBox cb = (ComboBox)ctrl;
+                                // Parse value back to index
+                                if (def.Type == "Rumble") cb.SelectedIndex = int.Parse(val);
+                                if (def.Type == "LedMode")
+                                {
+                                    if (val == "off") cb.SelectedIndex = 0;
+                                    else if (val == "solid") cb.SelectedIndex = 1;
+                                    else if (val == "breathe") cb.SelectedIndex = 2;
+                                    else if (val == "rotate") cb.SelectedIndex = 3;
+                                }
+                            }
+                            else if (ctrl is NumericUpDown)
+                            {
+                                NumericUpDown nud = (NumericUpDown)ctrl;
+                                int iVal;
+                                if (int.TryParse(val, out iVal)) nud.Value = iVal;
+                            }
+                            else if (ctrl is Button && def.Type == "Colour")
+                            {
+                                Button btn = (Button)ctrl;
+                                // val is RRGGBB hex?
+                                // GetValue returns hex string
+                                try {
+                                    int r = int.Parse(val.Substring(0,2), System.Globalization.NumberStyles.HexNumber);
+                                    int g = int.Parse(val.Substring(2,2), System.Globalization.NumberStyles.HexNumber);
+                                    int b = int.Parse(val.Substring(4,2), System.Globalization.NumberStyles.HexNumber);
+                                    btn.BackColor = Color.FromArgb(r,g,b);
+                                } catch {}
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
+        private void KeyList_SelectedIndexChanged(object sender, EventArgs e)
+        {
+            ListBox list = (ListBox)sender;
+            string type = (string)list.Tag;
+            ComboBox combo = tabCombos[type];
+            
+            if (list.SelectedItem is ConfigItem)
+            {
+                ConfigItem item = (ConfigItem)list.SelectedItem;
+                string currentVal = item.Config.GetValue(item.Def);
+                
+                int index = combo.FindStringExact(currentVal);
+                if (index != -1) 
+                {
+                    combo.SelectedIndex = index; 
+                    combo.DropDownStyle = ComboBoxStyle.DropDownList;
+                }
+                else
+                {
+                    combo.DropDownStyle = ComboBoxStyle.DropDown;
+                    combo.Text = currentVal;
+                }
+            }
+        }
+
+        private void ValueCombo_SelectedIndexChanged(object sender, EventArgs e)
+        {
+             UpdateCurrentConfigFromUI();
+        }
+        
+        private void ValueCombo_LostFocus(object sender, EventArgs e)
+        {
+             UpdateCurrentConfigFromUI();
+        }
+
+        private void CaptureKey_Click(object sender, EventArgs e)
+        {
+            Button btn = (Button)sender;
+            ComboBox combo = (ComboBox)btn.Tag;
+            
+            using (KeyCaptureForm form = new KeyCaptureForm())
+            {
+                if (form.ShowDialog() == DialogResult.OK)
+                {
+                    string key = form.CapturedKeyName;
+                    int idx = combo.FindStringExact(key);
+                    if (idx != -1)
+                    {
+                        combo.SelectedIndex = idx;
+                    }
+                    else
+                    {
+                        combo.DropDownStyle = ComboBoxStyle.DropDown;
+                        combo.Text = key;
+                        UpdateCurrentConfigFromUI(); 
+                    }
+                }
+            }
+        }
+
+        private void UpdateCurrentConfigFromUI()
+        {
+             // Find which tab is active or check all?
+             // Or just check the active one.
+             // But "Apply" might be clicked while focus is anywhere.
+             
+             foreach(var kvp in tabLists)
+             {
+                 ListBox list = kvp.Value;
+                 ComboBox combo = tabCombos[kvp.Key];
+                 
+                 if (list.SelectedItem is ConfigItem)
+                 {
+                     ConfigItem item = (ConfigItem)list.SelectedItem;
+                     try
+                     {
+                         string val = combo.Text;
+                         if (!string.IsNullOrWhiteSpace(val))
+                         {
+                             item.Config.Set(item.Def.Name, val);
+                             int idx = list.SelectedIndex;
+                             list.Items[idx] = item; 
+                             list.SelectedIndex = idx;
+                         }
+                     }
+                     catch (Exception) { }
+                 }
+             }
+        }
+
+        private void ApplyButton_Click(object sender, EventArgs e)
+        {
+            // Ensure current selection is committed
+            UpdateCurrentConfigFromUI();
+
+            try
+            {
+                statusLabel.Text = "Writing to device...";
+                Application.DoEvents();
+                device.WriteConfig(currentConfig.Raw);
+                statusLabel.Text = "Saved successfully.";
+                MessageBox.Show("Configuration saved to device!");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error writing: " + ex.Message);
+                statusLabel.Text = "Write failed.";
+            }
+        }
+
+        private void ResetButton_Click(object sender, EventArgs e)
+        {
+            if (MessageBox.Show("Are you sure you want to reset all mappings to default?", "Confirm Reset", MessageBoxButtons.YesNo) == DialogResult.Yes)
+            {
+                string defaultMappings = 
+@"lu=W
+ld=S
+ll=A
+lr=D
+du=MOUSE_WHEELUP
+dd=MOUSE_WHEELDOWN
+dl=HOME
+dr=END
+a=DOWN
+b=RIGHT
+x=LEFT
+y=UP
+l1=MOUSE_LEFT
+r1=MOUSE_RIGHT
+l2=MOUSE_MIDDLE
+r2=MOUSE_FAST
+l3=SPACE
+r3=ENTER
+start=NONE
+select=NONE
+menu=NONE
+l41=SYSRQ
+l42=NONE
+l43=NONE
+l44=NONE
+r41=PAUSE
+r42=NONE
+r43=NONE
+r44=NONE
+l4delay1=0
+l4delay2=0
+l4delay3=0
+l4delay4=20
+r4delay1=0
+r4delay2=0
+r4delay3=0
+r4delay4=20";
+
+                string[] lines = defaultMappings.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
+                foreach (string line in lines)
+                {
+                    if (string.IsNullOrWhiteSpace(line) || line.Trim().StartsWith("#")) continue;
+                    string[] parts = line.Split(new char[] { '=' }, 2);
+                    if (parts.Length == 2)
+                    {
+                        try 
+                        { 
+                            currentConfig.Set(parts[0].Trim(), parts[1].Trim()); 
+                        }
+                        catch {}
+                    }
+                }
+                
+                RefreshList();
+                statusLabel.Text = "Defaults loaded into memory. Click Apply to save.";
+                MessageBox.Show("Defaults loaded. Click 'Apply Changes' to write to device.");
+            }
+        }
+
+        private void ReloadButton_Click(object sender, EventArgs e)
+        {
+            LoadConfig();
+        }
+
+        protected override void OnFormClosed(FormClosedEventArgs e)
+        {
+            if (device != null) device.Dispose();
+            base.OnFormClosed(e);
+        }
+
+        // Helper class for ListBox
+        private class ConfigItem
+        {
+            public Config.FieldDef Def;
+            public Config Config;
+            
+            public override string ToString()
+            {
+                return string.Format("{0} = {1} ({2})", Def.Name, Config.GetValue(Def), Def.Desc);
+            }
+        }
+    }
+
+    public class KeyCaptureForm : Form
+    {
+        public string CapturedKeyName { get; private set; }
+
+        public KeyCaptureForm()
+        {
+            this.Text = "Press any key...";
+            this.Size = new Size(300, 150);
+            this.StartPosition = FormStartPosition.CenterParent;
+            this.FormBorderStyle = FormBorderStyle.FixedDialog;
+            this.MaximizeBox = false;
+            this.MinimizeBox = false;
+            
+            Label lbl = new Label();
+            lbl.Text = "Press a key on your keyboard/controller to map it.\nPress Escape to cancel.";
+            lbl.TextAlign = ContentAlignment.MiddleCenter;
+            lbl.Dock = DockStyle.Fill;
+            this.Controls.Add(lbl);
+            
+            this.KeyPreview = true;
+            this.KeyDown += KeyCaptureForm_KeyDown;
+        }
+
+        private void KeyCaptureForm_KeyDown(object sender, KeyEventArgs e)
+        {
+            if (e.KeyCode == Keys.Escape)
+            {
+                this.DialogResult = DialogResult.Cancel;
+                this.Close();
+                return;
+            }
+
+            // Map WinForms Keys to our KeyCodes name
+            string name = KeyMapper.Map(e.KeyCode);
+            if (name == null)
+            {
+                // Try direct string match
+                string s = e.KeyCode.ToString().ToUpper();
+                if (KeyCodes.Map.ContainsKey(s)) name = s;
+            }
+
+            if (name != null)
+            {
+                CapturedKeyName = name;
+                this.DialogResult = DialogResult.OK;
+                this.Close();
+            }
+        }
+    }
+
+    public static class KeyMapper
+    {
+        public static string Map(Keys k)
+        {
+            // Manual mapping for divergent names
+            switch (k)
+            {
+                case Keys.Return: return "ENTER";
+                case Keys.Back: return "BACKSPACE";
+                case Keys.Capital: return "CAPSLOCK";
+                case Keys.Oemcomma: return "COMMA";
+                case Keys.OemPeriod: return "DOT";
+                case Keys.OemQuestion: return "SLASH"; // ? is /
+                case Keys.OemSemicolon: return "SEMICOLON";
+                case Keys.OemQuotes: return "APOSTROPHE";
+                case Keys.OemOpenBrackets: return "LEFTBRACE";
+                case Keys.OemCloseBrackets: return "RIGHTBRACE";
+                case Keys.OemPipe: return "BACKSLASH";
+                case Keys.Oemtilde: return "GRAVE"; // ~ is `
+                case Keys.OemMinus: return "MINUS";
+                case Keys.Oemplus: return "EQUAL"; // + is =
+                case Keys.D0: return "0";
+                case Keys.D1: return "1";
+                case Keys.D2: return "2";
+                case Keys.D3: return "3";
+                case Keys.D4: return "4";
+                case Keys.D5: return "5";
+                case Keys.D6: return "6";
+                case Keys.D7: return "7";
+                case Keys.D8: return "8";
+                case Keys.D9: return "9";
+                case Keys.LWin: return "LWIN";
+                case Keys.RWin: return "RWIN";
+                case Keys.Apps: return "APPLICATIONS";
+                case Keys.PrintScreen: return "PRINTSCREEN";
+                case Keys.VolumeUp: return "VOLUP";
+                case Keys.VolumeDown: return "VOLDN";
+                case Keys.VolumeMute: return "MUTE";
+                case Keys.Space: return "SPACE";
+                case Keys.Delete: return "DELETE";
+                case Keys.Insert: return "INSERT";
+                case Keys.Home: return "HOME";
+                case Keys.End: return "END";
+                case Keys.PageUp: return "PAGEUP";
+                case Keys.PageDown: return "PAGEDOWN";
+                case Keys.Up: return "UP";
+                case Keys.Down: return "DOWN";
+                case Keys.Left: return "LEFT";
+                case Keys.Right: return "RIGHT";
+                case Keys.Tab: return "TAB";
+                // Add more as needed
+            }
+            return null;
+        }
+    }
+
+    public static class InputBox
+    {
+        public static string Show(string title, string promptText)
+        {
+            Form form = new Form();
+            Label label = new Label();
+            TextBox textBox = new TextBox();
+            Button buttonOk = new Button();
+            Button buttonCancel = new Button();
+
+            form.Text = title;
+            label.Text = promptText;
+            textBox.Text = "";
+
+            buttonOk.Text = "OK";
+            buttonCancel.Text = "Cancel";
+            buttonOk.DialogResult = DialogResult.OK;
+            buttonCancel.DialogResult = DialogResult.Cancel;
+
+            label.SetBounds(9, 20, 372, 13);
+            textBox.SetBounds(12, 36, 372, 20);
+            buttonOk.SetBounds(228, 72, 75, 23);
+            buttonCancel.SetBounds(309, 72, 75, 23);
+
+            label.AutoSize = true;
+            textBox.Anchor = textBox.Anchor | AnchorStyles.Right;
+            buttonOk.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+            buttonCancel.Anchor = AnchorStyles.Bottom | AnchorStyles.Right;
+
+            form.ClientSize = new Size(396, 107);
+            form.Controls.AddRange(new Control[] { label, textBox, buttonOk, buttonCancel });
+            form.ClientSize = new Size(Math.Max(300, label.Right + 10), form.ClientSize.Height);
+            form.FormBorderStyle = FormBorderStyle.FixedDialog;
+            form.StartPosition = FormStartPosition.CenterScreen;
+            form.MinimizeBox = false;
+            form.MaximizeBox = false;
+            form.AcceptButton = buttonOk;
+            form.CancelButton = buttonCancel;
+
+            DialogResult dialogResult = form.ShowDialog();
+            return dialogResult == DialogResult.OK ? textBox.Text : "";
+        }
+    }
+
+    static class Program
+    {
+        [STAThread]
+        static void Main()
+        {
+            try
+            {
+                Application.EnableVisualStyles();
+                Application.SetCompatibleTextRenderingDefault(false);
+                Application.Run(new MainForm());
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show(ex.ToString(), "Critical Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
+            }
+        }
+    }
+}
