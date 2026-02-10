@@ -991,15 +991,25 @@ namespace GpdGui
 
         private void RefreshProfilesList()
         {
-            profilesList.Items.Clear();
-            string profilesDir = AppPaths.ProfilesDir;
-            if (System.IO.Directory.Exists(profilesDir))
+            if (profilesList == null) return;
+
+            profilesList.BeginUpdate();
+            try
             {
-                string[] files = System.IO.Directory.GetFiles(profilesDir, "*.txt");
-                foreach (string file in files)
+                profilesList.Items.Clear();
+                string profilesDir = AppPaths.ProfilesDir;
+                if (System.IO.Directory.Exists(profilesDir))
                 {
-                    profilesList.Items.Add(System.IO.Path.GetFileNameWithoutExtension(file));
+                    string[] files = System.IO.Directory.GetFiles(profilesDir, "*.txt");
+                    foreach (string file in files)
+                    {
+                        profilesList.Items.Add(System.IO.Path.GetFileNameWithoutExtension(file));
+                    }
                 }
+            }
+            finally
+            {
+                profilesList.EndUpdate();
             }
         }
 
@@ -1266,67 +1276,77 @@ namespace GpdGui
 
         private void RefreshList()
         {
-            foreach (var kvp in tabLists) kvp.Value.Items.Clear();
-            
-            if (currentConfig != null)
+            if (mainTabControl != null) mainTabControl.SuspendLayout();
+            foreach (var kvp in tabLists) kvp.Value.BeginUpdate();
+            try
             {
-                foreach (Config.FieldDef def in Config.Fields)
+                foreach (var kvp in tabLists) kvp.Value.Items.Clear();
+
+                if (currentConfig != null)
                 {
-                    if (def.Type == "Key")
+                    foreach (Config.FieldDef def in Config.Fields)
                     {
-                        if (def.Name.Contains("delay")) continue; // Should be Millis type now?
-                        // Add to Buttons or Macros?
-                        // L4/R4 are macros.
-                        string target = (def.Name.StartsWith("l4") || def.Name.StartsWith("r4")) ? "Macro" : "Key";
-                        if (tabLists.ContainsKey(target))
-                            tabLists[target].Items.Add(new ConfigItem { Def = def, Config = currentConfig });
-                    }
-                    else if (def.Type == "Millis")
-                    {
-                        if (tabLists.ContainsKey("Macro"))
-                            tabLists["Macro"].Items.Add(new ConfigItem { Def = def, Config = currentConfig });
-                    }
-                    else
-                    {
-                        // Settings Tab
-                        if (settingControls.ContainsKey(def.Name))
+                        if (def.Type == "Key")
                         {
-                            Control ctrl = settingControls[def.Name];
-                            string val = currentConfig.GetValue(def);
-                            if (ctrl is ComboBox)
+                            if (def.Name.Contains("delay")) continue; // Should be Millis type now?
+                            // Add to Buttons or Macros?
+                            // L4/R4 are macros.
+                            string target = (def.Name.StartsWith("l4") || def.Name.StartsWith("r4")) ? "Macro" : "Key";
+                            if (tabLists.ContainsKey(target))
+                                tabLists[target].Items.Add(new ConfigItem { Def = def, Config = currentConfig });
+                        }
+                        else if (def.Type == "Millis")
+                        {
+                            if (tabLists.ContainsKey("Macro"))
+                                tabLists["Macro"].Items.Add(new ConfigItem { Def = def, Config = currentConfig });
+                        }
+                        else
+                        {
+                            // Settings Tab
+                            if (settingControls.ContainsKey(def.Name))
                             {
-                                ComboBox cb = (ComboBox)ctrl;
-                                // Parse value back to index
-                                if (def.Type == "Rumble") cb.SelectedIndex = int.Parse(val);
-                                if (def.Type == "LedMode")
+                                Control ctrl = settingControls[def.Name];
+                                string val = currentConfig.GetValue(def);
+                                if (ctrl is ComboBox)
                                 {
-                                    if (val == "off") cb.SelectedIndex = 0;
-                                    else if (val == "solid") cb.SelectedIndex = 1;
-                                    else if (val == "breathe") cb.SelectedIndex = 2;
-                                    else if (val == "rotate") cb.SelectedIndex = 3;
+                                    ComboBox cb = (ComboBox)ctrl;
+                                    // Parse value back to index
+                                    if (def.Type == "Rumble") cb.SelectedIndex = int.Parse(val);
+                                    if (def.Type == "LedMode")
+                                    {
+                                        if (val == "off") cb.SelectedIndex = 0;
+                                        else if (val == "solid") cb.SelectedIndex = 1;
+                                        else if (val == "breathe") cb.SelectedIndex = 2;
+                                        else if (val == "rotate") cb.SelectedIndex = 3;
+                                    }
                                 }
-                            }
-                            else if (ctrl is NumericUpDown)
-                            {
-                                NumericUpDown nud = (NumericUpDown)ctrl;
-                                int iVal;
-                                if (int.TryParse(val, out iVal)) nud.Value = iVal;
-                            }
-                            else if (ctrl is Button && def.Type == "Colour")
-                            {
-                                Button btn = (Button)ctrl;
-                                // val is RRGGBB hex?
-                                // GetValue returns hex string
-                                try {
-                                    int r = int.Parse(val.Substring(0,2), System.Globalization.NumberStyles.HexNumber);
-                                    int g = int.Parse(val.Substring(2,2), System.Globalization.NumberStyles.HexNumber);
-                                    int b = int.Parse(val.Substring(4,2), System.Globalization.NumberStyles.HexNumber);
-                                    btn.BackColor = Color.FromArgb(r,g,b);
-                                } catch {}
+                                else if (ctrl is NumericUpDown)
+                                {
+                                    NumericUpDown nud = (NumericUpDown)ctrl;
+                                    int iVal;
+                                    if (int.TryParse(val, out iVal)) nud.Value = iVal;
+                                }
+                                else if (ctrl is Button && def.Type == "Colour")
+                                {
+                                    Button btn = (Button)ctrl;
+                                    // val is RRGGBB hex?
+                                    // GetValue returns hex string
+                                    try {
+                                        int r = int.Parse(val.Substring(0,2), System.Globalization.NumberStyles.HexNumber);
+                                        int g = int.Parse(val.Substring(2,2), System.Globalization.NumberStyles.HexNumber);
+                                        int b = int.Parse(val.Substring(4,2), System.Globalization.NumberStyles.HexNumber);
+                                        btn.BackColor = Color.FromArgb(r,g,b);
+                                    } catch {}
+                                }
                             }
                         }
                     }
                 }
+            }
+            finally
+            {
+                foreach (var kvp in tabLists) kvp.Value.EndUpdate();
+                if (mainTabControl != null) mainTabControl.ResumeLayout();
             }
         }
 
