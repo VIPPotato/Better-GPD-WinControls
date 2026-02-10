@@ -346,14 +346,15 @@ namespace GpdControl
         {
             if (config.Length != 256) throw new ArgumentException("Config must be 256 bytes");
 
-            // Reference protocol writes 8 x 16-byte blocks with a 2-byte index in the payload.
+            WaitReady(0x20);
+
+            // Reference protocol writes 8 x 16-byte blocks.
+            // In this implementation, the block index is sent in the request index byte (minorSerial).
             for (int block = 0; block < 8; block++)
             {
-                byte[] payload = new byte[18];
-                payload[0] = (byte)block; // index low
-                payload[1] = 0x00;        // index high
-                Array.Copy(config, block * 16, payload, 2, 16);
-                SendReq(0x21, 0x00, payload);
+                byte[] payload = new byte[16];
+                Array.Copy(config, block * 16, payload, 0, 16);
+                SendReq(0x21, (byte)block, payload);
             }
 
             byte[] response = SendReq(0x22, 0x00, null); // Checksum. Minor 0
