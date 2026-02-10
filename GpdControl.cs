@@ -498,36 +498,34 @@ namespace GpdControl
             new FieldDef{Offset=38, Name="l2", Desc="L2 trigger", Size=2, Type="Key"},
             new FieldDef{Offset=40, Name="r2", Desc="R2 trigger", Size=2, Type="Key"},
             
-            // Block 3: Back Keys (48-63)
-            new FieldDef{Offset=48, Name="l41", Desc="L4 macro key 1", Size=2, Type="Key"},
-            new FieldDef{Offset=50, Name="l42", Desc="L4 macro key 2", Size=2, Type="Key"},
-            new FieldDef{Offset=52, Name="l43", Desc="L4 macro key 3", Size=2, Type="Key"},
-            new FieldDef{Offset=54, Name="l44", Desc="L4 macro key 4", Size=2, Type="Key"},
-            new FieldDef{Offset=56, Name="r41", Desc="R4 macro key 1", Size=2, Type="Key"},
-            new FieldDef{Offset=58, Name="r42", Desc="R4 macro key 2", Size=2, Type="Key"},
-            new FieldDef{Offset=60, Name="r43", Desc="R4 macro key 3", Size=2, Type="Key"},
-            new FieldDef{Offset=62, Name="r44", Desc="R4 macro key 4", Size=2, Type="Key"},
+            // Block 3/4: Back Keys (50-64)
+            new FieldDef{Offset=50, Name="l41", Desc="L4 macro key 1", Size=2, Type="Key"},
+            new FieldDef{Offset=52, Name="l42", Desc="L4 macro key 2", Size=2, Type="Key"},
+            new FieldDef{Offset=54, Name="l43", Desc="L4 macro key 3", Size=2, Type="Key"},
+            new FieldDef{Offset=56, Name="l44", Desc="L4 macro key 4", Size=2, Type="Key"},
+            new FieldDef{Offset=58, Name="r41", Desc="R4 macro key 1", Size=2, Type="Key"},
+            new FieldDef{Offset=60, Name="r42", Desc="R4 macro key 2", Size=2, Type="Key"},
+            new FieldDef{Offset=62, Name="r43", Desc="R4 macro key 3", Size=2, Type="Key"},
+            new FieldDef{Offset=64, Name="r44", Desc="R4 macro key 4", Size=2, Type="Key"},
 
-            // Block 4: Misc (64-79)
-            new FieldDef{Offset=64, Name="rumble", Desc="Rumble", Size=1, Type="Rumble"},
-            new FieldDef{Offset=65, Name="ledmode", Desc="LED mode", Size=1, Type="LedMode"},
-            new FieldDef{Offset=66, Name="colour", Desc="LED colour", Size=3, Type="Colour"},
+            // Block 4/5: Misc + Delays (66-95)
+            new FieldDef{Offset=66, Name="rumble", Desc="Rumble", Size=1, Type="Rumble"},
+            new FieldDef{Offset=68, Name="ledmode", Desc="LED mode", Size=1, Type="LedMode"},
+            new FieldDef{Offset=69, Name="colour", Desc="LED colour", Size=3, Type="Colour"},
             
-            new FieldDef{Offset=70, Name="ldead", Desc="Left stick deadzone", Size=1, Type="Signed"},
-            new FieldDef{Offset=71, Name="lcent", Desc="Left stick centering", Size=1, Type="Signed"},
-            new FieldDef{Offset=73, Name="rdead", Desc="Right stick deadzone", Size=1, Type="Signed"},
-            new FieldDef{Offset=74, Name="rcent", Desc="Right stick centering", Size=1, Type="Signed"},
+            new FieldDef{Offset=72, Name="ldead", Desc="Left stick deadzone", Size=1, Type="Signed"},
+            new FieldDef{Offset=73, Name="lcent", Desc="Left stick centering", Size=1, Type="Signed"},
+            new FieldDef{Offset=74, Name="rdead", Desc="Right stick deadzone", Size=1, Type="Signed"},
+            new FieldDef{Offset=75, Name="rcent", Desc="Right stick centering", Size=1, Type="Signed"},
 
-            new FieldDef{Offset=78,Name="l4delay1",Desc="L4 macro delay 1",Size=2,Type="Millis"},
-
-            // Block 5: Delays (80-95)
-            new FieldDef{Offset=80,Name="l4delay2",Desc="L4 macro delay 2",Size=2,Type="Millis"},
-            new FieldDef{Offset=82,Name="l4delay3",Desc="L4 macro delay 3",Size=2,Type="Millis"},
-            new FieldDef{Offset=84,Name="l4delay4",Desc="L4 macro delay 4",Size=2,Type="Millis"},
-            new FieldDef{Offset=86,Name="r4delay1",Desc="R4 macro delay 1",Size=2,Type="Millis"},
-            new FieldDef{Offset=88,Name="r4delay2",Desc="R4 macro delay 2",Size=2,Type="Millis"},
-            new FieldDef{Offset=90,Name="r4delay3",Desc="R4 macro delay 3",Size=2,Type="Millis"},
-            new FieldDef{Offset=92,Name="r4delay4",Desc="R4 macro delay 4",Size=2,Type="Millis"},
+            new FieldDef{Offset=80,Name="l4delay1",Desc="L4 macro delay 1",Size=2,Type="Millis"},
+            new FieldDef{Offset=82,Name="l4delay2",Desc="L4 macro delay 2",Size=2,Type="Millis"},
+            new FieldDef{Offset=84,Name="l4delay3",Desc="L4 macro delay 3",Size=2,Type="Millis"},
+            new FieldDef{Offset=86,Name="l4delay4",Desc="L4 macro delay 4",Size=2,Type="Millis"},
+            new FieldDef{Offset=88,Name="r4delay1",Desc="R4 macro delay 1",Size=2,Type="Millis"},
+            new FieldDef{Offset=90,Name="r4delay2",Desc="R4 macro delay 2",Size=2,Type="Millis"},
+            new FieldDef{Offset=92,Name="r4delay3",Desc="R4 macro delay 3",Size=2,Type="Millis"},
+            new FieldDef{Offset=94,Name="r4delay4",Desc="R4 macro delay 4",Size=2,Type="Millis"},
         };
 
         public Config(byte[] raw)
@@ -796,4 +794,3 @@ namespace GpdControl
         }
     }
 }
-
