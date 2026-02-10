@@ -1,7 +1,6 @@
 using System;
 using System.Collections.Generic;
 using System.IO;
-using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using Microsoft.Win32.SafeHandles;
@@ -523,6 +522,18 @@ namespace GpdControl
             new FieldDef{Offset=94,Name="r4delay4",Desc="R4 macro delay 4",Size=2,Type="Millis"},
         };
 
+        private static readonly Dictionary<string, FieldDef> FieldsByName = BuildFieldLookup();
+
+        private static Dictionary<string, FieldDef> BuildFieldLookup()
+        {
+            Dictionary<string, FieldDef> lookup = new Dictionary<string, FieldDef>(StringComparer.OrdinalIgnoreCase);
+            foreach (FieldDef def in Fields)
+            {
+                lookup[def.Name] = def;
+            }
+            return lookup;
+        }
+
         public Config(byte[] raw)
         {
             Raw = raw;
@@ -530,8 +541,11 @@ namespace GpdControl
 
         public void Set(string key, string value)
         {
-            var def = Fields.FirstOrDefault(d => d.Name.Equals(key, StringComparison.OrdinalIgnoreCase));
-            if (def == null) throw new Exception(string.Format("Unknown setting: {0}", key));
+            FieldDef def;
+            if (!FieldsByName.TryGetValue(key, out def))
+            {
+                throw new Exception(string.Format("Unknown setting: {0}", key));
+            }
 
             switch (def.Type)
             {
