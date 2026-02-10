@@ -118,6 +118,11 @@ namespace GpdGui
             restoreButton.AutoSize = true;
             restoreButton.Click += RestoreButton_Click;
 
+            Button dataFolderButton = new Button();
+            dataFolderButton.Text = "Data Folder...";
+            dataFolderButton.AutoSize = true;
+            dataFolderButton.Click += DataFolderButton_Click;
+
             accessibilityButton = new Button();
             accessibilityButton.Text = "Accessibility: Off";
             accessibilityButton.AutoSize = true;
@@ -136,6 +141,7 @@ namespace GpdGui
             footerPanel.Controls.Add(checkUpdatesButton);
             footerPanel.Controls.Add(backupButton);
             footerPanel.Controls.Add(restoreButton);
+            footerPanel.Controls.Add(dataFolderButton);
             footerPanel.Controls.Add(accessibilityButton);
             footerPanel.Controls.Add(aboutButton);
             footerPanel.Controls.Add(exitButton);
@@ -225,7 +231,7 @@ namespace GpdGui
                 return false;
             }
 
-            string profilesDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+            string profilesDir = AppPaths.ProfilesDir;
             string baseDir = System.IO.Path.GetFullPath(profilesDir).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar)
                 + System.IO.Path.DirectorySeparatorChar;
             string candidate = System.IO.Path.GetFullPath(System.IO.Path.Combine(profilesDir, profileName + ".txt"));
@@ -387,6 +393,26 @@ namespace GpdGui
                 statusLabel.Text = "Restore failed.";
                 GuiLogger.LogException("Restore failed", ex);
             }
+        }
+
+        private void DataFolderButton_Click(object sender, EventArgs e)
+        {
+            FolderBrowserDialog fbd = new FolderBrowserDialog();
+            fbd.Description = "Select data folder for profiles and logs";
+            fbd.SelectedPath = AppPaths.DataRoot;
+            if (fbd.ShowDialog() != DialogResult.OK) return;
+
+            string error;
+            if (!AppPaths.TrySetDataRoot(fbd.SelectedPath, out error))
+            {
+                MessageBox.Show("Could not set data folder: " + error);
+                GuiLogger.Log("Data folder change failed: " + error);
+                return;
+            }
+
+            RefreshProfilesList();
+            ShowInfo("Data folder updated.", "Data folder: " + AppPaths.DataRoot);
+            GuiLogger.Log("Data folder updated to " + AppPaths.DataRoot);
         }
 
         private void AboutButton_Click(object sender, EventArgs e)
@@ -822,7 +848,7 @@ namespace GpdGui
         private void RefreshProfilesList()
         {
             profilesList.Items.Clear();
-            string profilesDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+            string profilesDir = AppPaths.ProfilesDir;
             if (System.IO.Directory.Exists(profilesDir))
             {
                 string[] files = System.IO.Directory.GetFiles(profilesDir, "*.txt");
@@ -839,9 +865,6 @@ namespace GpdGui
             string name = InputBox.Show("New Profile", "Enter profile name:");
             if (!string.IsNullOrWhiteSpace(name))
             {
-                string profilesDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
-                if (!System.IO.Directory.Exists(profilesDir)) System.IO.Directory.CreateDirectory(profilesDir);
-
                 string path;
                 string err;
                 if (!TryResolveProfilePath(name, out path, out err))
@@ -1471,33 +1494,115 @@ namespace GpdGui
         }
     }
 
-    public static class GuiLogger
+    public static class AppPaths
     {
-        private static readonly object Sync = new object();
-        private static readonly string LogPath;
+        private const string DataRootFileName = "data_root.txt";
+        private static readonly string BaseDir = AppDomain.CurrentDomain.BaseDirectory;
+        private static string _dataRoot;
 
-        static GuiLogger()
+        static AppPaths()
+        {
+            _dataRoot = ResolveInitialDataRoot();
+            EnsureDirectories();
+        }
+
+        public static string DataRoot
+        {
+            get { return _dataRoot; }
+        }
+
+        public static string ProfilesDir
+        {
+            get { return Path.Combine(_dataRoot, "profiles"); }
+        }
+
+        public static string LogsDir
+        {
+            get { return Path.Combine(_dataRoot, "logs"); }
+        }
+
+        private static string ResolveInitialDataRoot()
         {
             try
             {
-                string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
-                Directory.CreateDirectory(logDir);
-                LogPath = Path.Combine(logDir, "gpdgui-" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+                string markerPath = Path.Combine(BaseDir, DataRootFileName);
+                if (File.Exists(markerPath))
+                {
+                    string configured = File.ReadAllText(markerPath).Trim();
+                    if (!string.IsNullOrWhiteSpace(configured))
+                    {
+                        return Path.GetFullPath(configured);
+                    }
+                }
             }
             catch
             {
-                LogPath = null;
+            }
+            return BaseDir;
+        }
+
+        private static void EnsureDirectories()
+        {
+            Directory.CreateDirectory(ProfilesDir);
+            Directory.CreateDirectory(LogsDir);
+        }
+
+        public static bool TrySetDataRoot(string newRoot, out string error)
+        {
+            error = null;
+            try
+            {
+                if (string.IsNullOrWhiteSpace(newRoot))
+                {
+                    error = "Path cannot be empty.";
+                    return false;
+                }
+
+                string full = Path.GetFullPath(newRoot.Trim());
+                Directory.CreateDirectory(full);
+                Directory.CreateDirectory(Path.Combine(full, "profiles"));
+                Directory.CreateDirectory(Path.Combine(full, "logs"));
+
+                string markerPath = Path.Combine(BaseDir, DataRootFileName);
+                File.WriteAllText(markerPath, full);
+                _dataRoot = full;
+                return true;
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+    }
+
+    public static class GuiLogger
+    {
+        private static readonly object Sync = new object();
+
+        private static string ResolveLogPath()
+        {
+            try
+            {
+                string logDir = AppPaths.LogsDir;
+                Directory.CreateDirectory(logDir);
+                return Path.Combine(logDir, "gpdgui-" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+            }
+            catch
+            {
+                return null;
             }
         }
 
         public static void Log(string message)
         {
-            if (string.IsNullOrEmpty(LogPath)) return;
+            string logPath = ResolveLogPath();
+            if (string.IsNullOrEmpty(logPath)) return;
             try
             {
                 lock (Sync)
                 {
-                    File.AppendAllText(LogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + message + Environment.NewLine);
+                    File.AppendAllText(logPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + message + Environment.NewLine);
                 }
             }
             catch
