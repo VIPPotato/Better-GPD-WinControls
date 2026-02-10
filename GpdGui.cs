@@ -24,7 +24,7 @@ namespace GpdGui
         private TabControl mainTabControl;
         private Config currentConfig;
         private GpdDevice device;
-        private const string CurrentAppVersion = "1.0.0";
+        private const string CurrentAppVersion = "2.0.1";
         private const string ReleasesApiUrl = "https://api.github.com/repos/VIPPotato/Better-GPD-WinControls/releases/latest";
         private const string ReleasesPageUrl = "https://github.com/VIPPotato/Better-GPD-WinControls/releases";
 
