@@ -5,6 +5,11 @@ on:
     types:
       - published
       - edited
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and upload (example: v2.0)
+        required: true
 
 permissions:
   contents: write
@@ -18,7 +23,11 @@ jobs:
         id: target
         shell: pwsh
         run: |
-          $tag = "${{ github.event.release.tag_name }}"
+          if ("${{ github.event_name }}" -eq "workflow_dispatch") {
+            $tag = "${{ github.event.inputs.tag }}"
+          } else {
+            $tag = "${{ github.event.release.tag_name }}"
+          }
 
           if ([string]::IsNullOrWhiteSpace($tag)) {
             throw "No release tag was provided."
