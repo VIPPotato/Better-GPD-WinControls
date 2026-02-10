@@ -145,6 +145,38 @@ namespace GpdGui
             return true;
         }
 
+        private bool TryResolveProfilePath(string profileName, out string fullPath, out string error)
+        {
+            fullPath = null;
+            error = null;
+
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                error = "Profile name cannot be empty.";
+                return false;
+            }
+
+            if (profileName.IndexOfAny(System.IO.Path.GetInvalidFileNameChars()) >= 0 || profileName.Contains("\\") || profileName.Contains("/"))
+            {
+                error = "Profile name contains invalid characters.";
+                return false;
+            }
+
+            string profilesDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
+            string baseDir = System.IO.Path.GetFullPath(profilesDir).TrimEnd(System.IO.Path.DirectorySeparatorChar, System.IO.Path.AltDirectorySeparatorChar)
+                + System.IO.Path.DirectorySeparatorChar;
+            string candidate = System.IO.Path.GetFullPath(System.IO.Path.Combine(profilesDir, profileName + ".txt"));
+
+            if (!candidate.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase))
+            {
+                error = "Profile path escapes the profiles directory.";
+                return false;
+            }
+
+            fullPath = candidate;
+            return true;
+        }
+
         private void PopulateKeyCombo(ComboBox combo)
         {
             combo.Items.Clear();
@@ -349,8 +381,14 @@ namespace GpdGui
             {
                 string profilesDir = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles");
                 if (!System.IO.Directory.Exists(profilesDir)) System.IO.Directory.CreateDirectory(profilesDir);
-                
-                string path = System.IO.Path.Combine(profilesDir, name + ".txt");
+
+                string path;
+                string err;
+                if (!TryResolveProfilePath(name, out path, out err))
+                {
+                    MessageBox.Show(err);
+                    return;
+                }
                 try
                 {
                     System.IO.File.WriteAllText(path, currentConfig.ToProfileString());
@@ -367,7 +405,13 @@ namespace GpdGui
             string name = profilesList.SelectedItem.ToString();
             if (MessageBox.Show("Delete profile '" + name + "'?", "Confirm", MessageBoxButtons.YesNo) == DialogResult.Yes)
             {
-                string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles", name + ".txt");
+                string path;
+                string err;
+                if (!TryResolveProfilePath(name, out path, out err))
+                {
+                    MessageBox.Show(err);
+                    return;
+                }
                 try
                 {
                     System.IO.File.Delete(path);
@@ -381,7 +425,13 @@ namespace GpdGui
         {
             if (profilesList.SelectedItem == null) return;
             string name = profilesList.SelectedItem.ToString();
-            string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles", name + ".txt");
+            string path;
+            string err;
+            if (!TryResolveProfilePath(name, out path, out err))
+            {
+                MessageBox.Show(err);
+                return;
+            }
             try
             {
                 string[] lines = System.IO.File.ReadAllLines(path);
@@ -400,7 +450,13 @@ namespace GpdGui
             string name = profilesList.SelectedItem.ToString();
             if (MessageBox.Show("Write profile '" + name + "' to device firmware?", "Confirm Write", MessageBoxButtons.YesNo) == DialogResult.Yes)
             {
-                string path = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "profiles", name + ".txt");
+                string path;
+                string err;
+                if (!TryResolveProfilePath(name, out path, out err))
+                {
+                    MessageBox.Show(err);
+                    return;
+                }
                 try
                 {
                     // Load to temp config or current? Current is fine as we are applying it.
