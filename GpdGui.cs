@@ -208,7 +208,7 @@ namespace GpdGui
             
             ComboBox combo = new ComboBox();
             combo.Width = 200;
-            combo.DropDownStyle = ComboBoxStyle.DropDownList;
+            combo.DropDownStyle = (filterType == "Key" || filterType == "Macro") ? ComboBoxStyle.DropDown : ComboBoxStyle.DropDownList;
             combo.Tag = list; // Link back to list
             
             if (filterType == "Key" || filterType == "Macro") PopulateKeyCombo(combo);
@@ -219,6 +219,14 @@ namespace GpdGui
             combo.LostFocus += new EventHandler(ValueCombo_LostFocus);
             
             editPanel.Controls.Add(combo);
+
+            if (filterType == "Key" || filterType == "Macro")
+            {
+                Label hint = new Label();
+                hint.AutoSize = true;
+                hint.Text = "Type key name or hex keycode (e.g. 0xEA).";
+                editPanel.Controls.Add(hint);
+            }
 
             if (filterType == "Key" || filterType == "Macro")
             {
@@ -609,15 +617,14 @@ namespace GpdGui
                 if (combo.Items.Count == 0) PopulateKeyCombo(combo);
                 combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
                 combo.AutoCompleteSource = AutoCompleteSource.ListItems;
+                combo.DropDownStyle = ComboBoxStyle.DropDown;
                 int index = combo.FindStringExact(currentVal);
                 if (index != -1) 
                 {
                     combo.SelectedIndex = index; 
-                    combo.DropDownStyle = ComboBoxStyle.DropDownList;
                 }
                 else
                 {
-                    combo.DropDownStyle = ComboBoxStyle.DropDown;
                     combo.Text = currentVal;
                 }
             }
