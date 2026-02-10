@@ -205,7 +205,21 @@ namespace GpdGui
         {
             if (combo == null) return true;
             ListBox list = combo.Tag as ListBox;
-            if (list == null || !(list.SelectedItem is ConfigItem)) return true;
+            if (list == null) return true;
+
+            string valWithoutTarget = combo.Text == null ? string.Empty : combo.Text.Trim();
+            if (!(list.SelectedItem is ConfigItem))
+            {
+                if (!string.IsNullOrWhiteSpace(valWithoutTarget))
+                {
+                    string msgNoTarget = "Select a mapping row before applying a value.";
+                    statusLabel.Text = msgNoTarget;
+                    GuiLogger.Log(msgNoTarget + " RawInput='" + valWithoutTarget + "'");
+                    if (showMessage) MessageBox.Show(msgNoTarget);
+                    return false;
+                }
+                return true;
+            }
 
             ConfigItem item = (ConfigItem)list.SelectedItem;
             string val = combo.Text == null ? string.Empty : combo.Text.Trim();
@@ -277,6 +291,7 @@ namespace GpdGui
             ComboBox combo = new ComboBox();
             combo.Width = 200;
             combo.DropDownStyle = (filterType == "Key" || filterType == "Macro") ? ComboBoxStyle.DropDown : ComboBoxStyle.DropDownList;
+            combo.Enabled = false;
             combo.Tag = list; // Link back to list
             
             if (filterType == "Key" || filterType == "Macro") PopulateKeyCombo(combo);
@@ -303,6 +318,7 @@ namespace GpdGui
                 capBtn.AutoSize = true;
                 capBtn.Tag = combo; // Link to combo
                 capBtn.Click += CaptureKey_Click;
+                capBtn.Enabled = (filterType == "Key");
                 capBtn.Visible = (filterType == "Key");
                 editPanel.Controls.Add(capBtn);
                 tabCaptureButtons[filterType] = capBtn;
@@ -715,9 +731,10 @@ namespace GpdGui
             ListBox list = (ListBox)sender;
             string type = (string)list.Tag;
             ComboBox combo = tabCombos[type];
-            
+             
             if (list.SelectedItem is ConfigItem)
             {
+                combo.Enabled = true;
                 ConfigItem item = (ConfigItem)list.SelectedItem;
                 string currentVal = item.Config.GetValue(item.Def);
 
@@ -764,6 +781,14 @@ namespace GpdGui
             }
             else if (type == "Macro")
             {
+                combo.Enabled = false;
+                combo.Text = string.Empty;
+                SetCaptureButtonState(type, false);
+            }
+            else
+            {
+                combo.Enabled = false;
+                combo.Text = string.Empty;
                 SetCaptureButtonState(type, false);
             }
         }
