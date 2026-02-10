@@ -101,3 +101,4 @@ if ($LaunchGui)
 }
 
 Write-Host "Device suite complete. Results in: $OutputDir"
+Write-Host "After GUI checks, run: powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\fill-gui-checklist.ps1 -RunDir `"$OutputDir`""
