@@ -99,15 +99,51 @@ namespace GpdGui
                 {
                     MessageBox.Show("Could not connect to device: " + ex.Message);
                     statusLabel.Text = "Disconnected.";
-                    // Do not disable form so user can try Reset/Reload
+                    currentConfig = null;
+                    device = null;
+                    SetConnectedState(false);
                 }
             };
+
+            SetConnectedState(false);
         }
 
         private Dictionary<string, ListBox> tabLists = new Dictionary<string, ListBox>();
         private Dictionary<string, ComboBox> tabCombos = new Dictionary<string, ComboBox>();
         // For settings tab controls
         private Dictionary<string, Control> settingControls = new Dictionary<string, Control>();
+
+        private void SetConnectedState(bool connected)
+        {
+            applyButton.Enabled = connected;
+        }
+
+        private bool EnsureConnectedAndLoaded()
+        {
+            if (device == null)
+            {
+                try
+                {
+                    device = new GpdDevice();
+                    device.Open();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Could not connect to device: " + ex.Message);
+                    statusLabel.Text = "Disconnected.";
+                    SetConnectedState(false);
+                    return false;
+                }
+            }
+
+            if (currentConfig == null)
+            {
+                LoadConfig();
+                if (currentConfig == null) return false;
+            }
+
+            return true;
+        }
 
         private void CreateListTab(TabPage tab, string filterType)
         {
@@ -308,6 +344,7 @@ namespace GpdGui
 
         private void NewProfile_Click(object sender, EventArgs e)
         {
+            if (!EnsureConnectedAndLoaded()) return;
             string name = InputBox.Show("New Profile", "Enter profile name:");
             if (!string.IsNullOrWhiteSpace(name))
             {
@@ -359,6 +396,7 @@ namespace GpdGui
 
         private void LoadProfile_Click(object sender, EventArgs e)
         {
+            if (!EnsureConnectedAndLoaded()) return;
             if (profilesList.SelectedItem == null) return;
             string name = profilesList.SelectedItem.ToString();
             if (MessageBox.Show("Write profile '" + name + "' to device firmware?", "Confirm Write", MessageBoxButtons.YesNo) == DialogResult.Yes)
@@ -416,11 +454,14 @@ namespace GpdGui
                 currentConfig = new Config(data);
                 RefreshList();
                 statusLabel.Text = string.Format("Configuration loaded. Firmware: {0}", device.FirmwareVersion);
+                SetConnectedState(true);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error reading config: " + ex.Message);
                 statusLabel.Text = "Error.";
+                currentConfig = null;
+                SetConnectedState(false);
             }
         }
 
@@ -582,6 +623,7 @@ namespace GpdGui
 
         private void ApplyButton_Click(object sender, EventArgs e)
         {
+            if (!EnsureConnectedAndLoaded()) return;
             // Ensure current selection is committed
             UpdateCurrentConfigFromUI();
 
@@ -602,6 +644,7 @@ namespace GpdGui
 
         private void ResetButton_Click(object sender, EventArgs e)
         {
+            if (!EnsureConnectedAndLoaded()) return;
             if (MessageBox.Show("Are you sure you want to reset all mappings to default?", "Confirm Reset", MessageBoxButtons.YesNo) == DialogResult.Yes)
             {
                 string defaultMappings = 
@@ -666,6 +709,21 @@ r4delay4=20";
 
         private void ReloadButton_Click(object sender, EventArgs e)
         {
+            if (device == null)
+            {
+                try
+                {
+                    device = new GpdDevice();
+                    device.Open();
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Could not connect to device: " + ex.Message);
+                    statusLabel.Text = "Disconnected.";
+                    SetConnectedState(false);
+                    return;
+                }
+            }
             LoadConfig();
         }
 
