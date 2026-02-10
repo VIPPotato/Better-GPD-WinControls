@@ -367,9 +367,7 @@ namespace GpdControl
             }
             else
             {
-                // FORCE COMMIT for testing (Safety off)
-                Console.WriteLine(string.Format("Warning: Checksum mismatch! Device: {0}, Calc: {1}. Committing anyway for test.", checksum, calculatedChecksum));
-                SendReq(0x23, 0x00, null);
+                throw new Exception(string.Format("Checksum mismatch while writing. Device: {0}, Calc: {1}", checksum, calculatedChecksum));
             }
         }
 
