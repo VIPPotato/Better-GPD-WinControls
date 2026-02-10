@@ -538,6 +538,29 @@ namespace GpdControl
                     if (rb > 2) throw new Exception("Rumble must be 0, 1, or 2");
                     Raw[def.Offset] = rb;
                     break;
+                case "LedMode":
+                    string mode = value.Trim().ToLowerInvariant();
+                    if (mode == "off") Raw[def.Offset] = 0x00;
+                    else if (mode == "solid") Raw[def.Offset] = 0x01;
+                    else if (mode == "breathe") Raw[def.Offset] = 0x11;
+                    else if (mode == "rotate") Raw[def.Offset] = 0x21;
+                    else throw new Exception("LED mode must be off, solid, breathe, or rotate");
+                    break;
+                case "Colour":
+                    string hex = value.Trim();
+                    if (hex.StartsWith("#")) hex = hex.Substring(1);
+                    if (hex.Length != 6) throw new Exception("Colour must be a 6-digit hex value (RRGGBB)");
+                    int rgb;
+                    if (!int.TryParse(hex, System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out rgb))
+                    {
+                        throw new Exception("Colour must be a valid hex value (RRGGBB)");
+                    }
+
+                    // Device format is B, G, R.
+                    Raw[def.Offset] = (byte)(rgb & 0xFF);
+                    Raw[def.Offset + 1] = (byte)((rgb >> 8) & 0xFF);
+                    Raw[def.Offset + 2] = (byte)((rgb >> 16) & 0xFF);
+                    break;
                 case "Millis":
                     ushort ms = ushort.Parse(value);
                     BitConverter.GetBytes(ms).CopyTo(Raw, def.Offset);
