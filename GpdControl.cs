@@ -263,16 +263,13 @@ namespace GpdControl
             byte[] readBuffer = new byte[65];
             readBuffer[0] = 0x01;
             
-            // PRIORITY: Try Feature Report (Control Transfer) first.
-            // This bypasses the Input Buffer and gets the current state synchronously.
-            if (NativeMethods.HidD_GetFeature(_handle, readBuffer, readBuffer.Length))
+            if (NativeMethods.HidD_GetInputReport(_handle, readBuffer, readBuffer.Length))
             {
                 return readBuffer;
             }
-            
-            // Fallback: Input Report (Interrupt Transfer)
-            // Only use this if GetFeature fails.
-            if (NativeMethods.HidD_GetInputReport(_handle, readBuffer, readBuffer.Length))
+
+            // Fallback for devices/firmware that only expose this data through feature reports.
+            if (NativeMethods.HidD_GetFeature(_handle, readBuffer, readBuffer.Length))
             {
                 return readBuffer;
             }
