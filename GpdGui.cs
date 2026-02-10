@@ -647,63 +647,28 @@ namespace GpdGui
             if (!EnsureConnectedAndLoaded()) return;
             if (MessageBox.Show("Are you sure you want to reset all mappings to default?", "Confirm Reset", MessageBoxButtons.YesNo) == DialogResult.Yes)
             {
-                string defaultMappings = 
-@"lu=W
-ld=S
-ll=A
-lr=D
-du=MOUSE_WHEELUP
-dd=MOUSE_WHEELDOWN
-dl=HOME
-dr=END
-a=DOWN
-b=RIGHT
-x=LEFT
-y=UP
-l1=MOUSE_LEFT
-r1=MOUSE_RIGHT
-l2=MOUSE_MIDDLE
-r2=MOUSE_FAST
-l3=SPACE
-r3=ENTER
-start=NONE
-select=NONE
-menu=NONE
-l41=SYSRQ
-l42=NONE
-l43=NONE
-l44=NONE
-r41=PAUSE
-r42=NONE
-r43=NONE
-r44=NONE
-l4delay1=0
-l4delay2=0
-l4delay3=0
-l4delay4=20
-r4delay1=0
-r4delay2=0
-r4delay3=0
-r4delay4=20";
-
-                string[] lines = defaultMappings.Split(new char[] { '\n', '\r' }, StringSplitOptions.RemoveEmptyEntries);
-                foreach (string line in lines)
+                string mappingPath = System.IO.Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "default_mappings.txt");
+                if (!System.IO.File.Exists(mappingPath))
                 {
-                    if (string.IsNullOrWhiteSpace(line) || line.Trim().StartsWith("#")) continue;
-                    string[] parts = line.Split(new char[] { '=' }, 2);
-                    if (parts.Length == 2)
-                    {
-                        try 
-                        { 
-                            currentConfig.Set(parts[0].Trim(), parts[1].Trim()); 
-                        }
-                        catch {}
-                    }
+                    MessageBox.Show("default_mappings.txt was not found.");
+                    statusLabel.Text = "Reset failed.";
+                    return;
                 }
-                
-                RefreshList();
-                statusLabel.Text = "Defaults loaded into memory. Click Apply to save.";
-                MessageBox.Show("Defaults loaded. Click 'Apply Changes' to write to device.");
+
+                try
+                {
+                    string[] lines = System.IO.File.ReadAllLines(mappingPath);
+                    Config.LoadFromProfile(currentConfig, lines);
+                    device.WriteConfig(currentConfig.Raw);
+                    RefreshList();
+                    statusLabel.Text = "Defaults restored and written to device.";
+                    MessageBox.Show("Defaults restored successfully.");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show("Reset failed: " + ex.Message);
+                    statusLabel.Text = "Reset failed.";
+                }
             }
         }
 
