@@ -19,6 +19,7 @@ namespace GpdGui
         private Button reloadButton;
         private Button checkUpdatesButton;
         private Button accessibilityButton;
+        private CheckBox safeApplyCheckBox;
         private Label statusLabel;
         private Config currentConfig;
         private GpdDevice device;
@@ -60,9 +61,15 @@ namespace GpdGui
             resetButton.AutoSize = true;
             resetButton.Click += new EventHandler(ResetButton_Click);
 
+            safeApplyCheckBox = new CheckBox();
+            safeApplyCheckBox.Text = "Safe Apply Verify";
+            safeApplyCheckBox.AutoSize = true;
+            safeApplyCheckBox.Checked = true;
+
             buttonPanel.Controls.Add(reloadButton);
             buttonPanel.Controls.Add(applyButton);
             buttonPanel.Controls.Add(resetButton);
+            buttonPanel.Controls.Add(safeApplyCheckBox);
             mainLayout.Controls.Add(buttonPanel, 0, 0);
 
             // Content Tabs
@@ -1290,6 +1297,53 @@ namespace GpdGui
             }
         }
 
+        private bool VerifyAppliedConfiguration(Config expectedConfig, out string report)
+        {
+            report = string.Empty;
+            try
+            {
+                byte[] verifyRaw = device.ReadConfig();
+                Config actualConfig = new Config(verifyRaw);
+
+                List<string> mismatches = new List<string>();
+                foreach (Config.FieldDef def in Config.Fields)
+                {
+                    string expected = expectedConfig.GetValue(def);
+                    string actual = actualConfig.GetValue(def);
+                    if (!string.Equals(expected, actual, StringComparison.OrdinalIgnoreCase))
+                    {
+                        mismatches.Add(string.Format("{0}: expected {1}, actual {2}", def.Name, expected, actual));
+                    }
+                }
+
+                if (mismatches.Count == 0)
+                {
+                    currentConfig = actualConfig;
+                    RefreshList();
+                    return true;
+                }
+
+                StringWriter sw = new StringWriter();
+                sw.WriteLine("Verification failed. Mismatched fields: " + mismatches.Count);
+                int limit = Math.Min(30, mismatches.Count);
+                for (int i = 0; i < limit; i++)
+                {
+                    sw.WriteLine(mismatches[i]);
+                }
+                if (mismatches.Count > limit)
+                {
+                    sw.WriteLine("...and " + (mismatches.Count - limit) + " more");
+                }
+                report = sw.ToString();
+                return false;
+            }
+            catch (Exception ex)
+            {
+                report = "Verification read-back failed: " + ex.Message;
+                return false;
+            }
+        }
+
         private void ApplyButton_Click(object sender, EventArgs e)
         {
             if (!EnsureConnectedAndLoaded()) return;
@@ -1304,6 +1358,22 @@ namespace GpdGui
                 statusLabel.Text = "Writing to device...";
                 Application.DoEvents();
                 device.WriteConfig(currentConfig.Raw);
+
+                if (safeApplyCheckBox != null && safeApplyCheckBox.Checked)
+                {
+                    statusLabel.Text = "Verifying write...";
+                    Application.DoEvents();
+                    string verifyReport;
+                    if (!VerifyAppliedConfiguration(currentConfig, out verifyReport))
+                    {
+                        statusLabel.Text = "Verification failed.";
+                        GuiLogger.Log("Safe apply verification failed. " + verifyReport.Replace(Environment.NewLine, " | "));
+                        MessageBox.Show(verifyReport, "Safe Apply Verification Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                        return;
+                    }
+                    GuiLogger.Log("Safe apply verification passed.");
+                }
+
                 statusLabel.Text = "Saved successfully.";
                 GuiLogger.Log("Configuration written to device.");
                 ShowInfo("Configuration saved to device!", "Configuration saved.");
