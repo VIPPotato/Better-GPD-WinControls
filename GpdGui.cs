@@ -2,6 +2,7 @@ using System;
 using System.Windows.Forms;
 using System.Drawing;
 using System.Collections.Generic;
+using System.IO;
 using GpdControl;
 
 namespace GpdGui
@@ -102,10 +103,12 @@ namespace GpdGui
                     currentConfig = null;
                     device = null;
                     SetConnectedState(false);
+                    GuiLogger.LogException("Initial device connection failed", ex);
                 }
             };
 
             SetConnectedState(false);
+            GuiLogger.Log("MainForm initialized.");
         }
 
         private Dictionary<string, ListBox> tabLists = new Dictionary<string, ListBox>();
@@ -113,6 +116,7 @@ namespace GpdGui
         private Dictionary<string, Button> tabCaptureButtons = new Dictionary<string, Button>();
         // For settings tab controls
         private Dictionary<string, Control> settingControls = new Dictionary<string, Control>();
+        private bool _suppressComboEvents;
 
         private void SetConnectedState(bool connected)
         {
@@ -133,6 +137,7 @@ namespace GpdGui
                     MessageBox.Show("Could not connect to device: " + ex.Message);
                     statusLabel.Text = "Disconnected.";
                     SetConnectedState(false);
+                    GuiLogger.LogException("EnsureConnectedAndLoaded connection failed", ex);
                     return false;
                 }
             }
@@ -194,6 +199,58 @@ namespace GpdGui
                 captureButton.Enabled = enabled;
                 captureButton.Visible = enabled;
             }
+        }
+
+        private bool TryApplyComboValue(ComboBox combo, bool showMessage)
+        {
+            if (combo == null) return true;
+            ListBox list = combo.Tag as ListBox;
+            if (list == null || !(list.SelectedItem is ConfigItem)) return true;
+
+            ConfigItem item = (ConfigItem)list.SelectedItem;
+            string val = combo.Text == null ? string.Empty : combo.Text.Trim();
+            if (string.IsNullOrWhiteSpace(val)) return true;
+
+            try
+            {
+                if (item.Def.Type == "Millis")
+                {
+                    ushort parsedMs;
+                    if (!ushort.TryParse(val, out parsedMs))
+                    {
+                        throw new Exception("Delay must be an integer between 0 and 65535.");
+                    }
+                }
+
+                item.Config.Set(item.Def.Name, val);
+                list.Refresh();
+                return true;
+            }
+            catch (Exception ex)
+            {
+                string msg = "Invalid value for '" + item.Def.Name + "': " + ex.Message;
+                statusLabel.Text = msg;
+                GuiLogger.Log(msg);
+                if (showMessage) MessageBox.Show(msg);
+                return false;
+            }
+        }
+
+        private bool CommitAllEditorValues(bool showMessageForFirstError)
+        {
+            bool ok = true;
+            bool shown = false;
+            foreach (var kvp in tabCombos)
+            {
+                bool show = showMessageForFirstError && !shown;
+                bool thisOk = TryApplyComboValue(kvp.Value, show);
+                if (!thisOk)
+                {
+                    ok = false;
+                    shown = true;
+                }
+            }
+            return ok;
         }
 
         private void CreateListTab(TabPage tab, string filterType)
@@ -418,9 +475,10 @@ namespace GpdGui
                 {
                     System.IO.File.WriteAllText(path, currentConfig.ToProfileString());
                     RefreshProfilesList();
+                    GuiLogger.Log("Profile created: " + name);
                     MessageBox.Show("Profile created.");
                 }
-                catch (Exception ex) { MessageBox.Show("Error creating profile: " + ex.Message); }
+                catch (Exception ex) { MessageBox.Show("Error creating profile: " + ex.Message); GuiLogger.LogException("Create profile failed", ex); }
             }
         }
 
@@ -441,8 +499,9 @@ namespace GpdGui
                 {
                     System.IO.File.Delete(path);
                     RefreshProfilesList();
+                    GuiLogger.Log("Profile deleted: " + name);
                 }
-                catch (Exception ex) { MessageBox.Show("Error deleting: " + ex.Message); }
+                catch (Exception ex) { MessageBox.Show("Error deleting: " + ex.Message); GuiLogger.LogException("Delete profile failed", ex); }
             }
         }
 
@@ -463,9 +522,10 @@ namespace GpdGui
                 Config.LoadFromProfile(currentConfig, lines);
                 RefreshList(); // Update GUI elements
                 statusLabel.Text = "Loaded profile '" + name + "' into GUI (not device).";
+                GuiLogger.Log("Profile loaded into GUI state: " + name);
                 MessageBox.Show("Profile loaded into GUI. Click 'Apply Changes' to write to device.");
             }
-            catch (Exception ex) { MessageBox.Show("Error loading: " + ex.Message); }
+            catch (Exception ex) { MessageBox.Show("Error loading: " + ex.Message); GuiLogger.LogException("Edit/load profile failed", ex); }
         }
 
         private void LoadProfile_Click(object sender, EventArgs e)
@@ -490,9 +550,10 @@ namespace GpdGui
                     RefreshList(); // Sync GUI
                     device.WriteConfig(currentConfig.Raw);
                     statusLabel.Text = "Profile '" + name + "' written to device.";
+                    GuiLogger.Log("Profile written to device: " + name);
                     MessageBox.Show("Profile written successfully!");
                 }
-                catch (Exception ex) { MessageBox.Show("Error writing: " + ex.Message); }
+                catch (Exception ex) { MessageBox.Show("Error writing: " + ex.Message); GuiLogger.LogException("Load profile write failed", ex); }
             }
         }
 
@@ -523,11 +584,13 @@ namespace GpdGui
             {
                 System.IO.File.WriteAllText(path, currentConfig.ToProfileString());
                 statusLabel.Text = "Profile '" + name + "' saved from GUI state.";
+                GuiLogger.Log("Profile saved from GUI state: " + name);
                 MessageBox.Show("Profile saved.");
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error saving profile: " + ex.Message);
+                GuiLogger.LogException("Save GUI profile failed", ex);
             }
         }
 
@@ -556,7 +619,7 @@ namespace GpdGui
                 }
                 
                 if (val != "") currentConfig.Set(def.Name, val);
-            } catch {}
+            } catch (Exception ex) { GuiLogger.LogException("Setting_Changed failed for " + def.Name, ex); }
         }
 
         private void LoadConfig()
@@ -577,6 +640,7 @@ namespace GpdGui
                 statusLabel.Text = "Error.";
                 currentConfig = null;
                 SetConnectedState(false);
+                GuiLogger.LogException("LoadConfig failed", ex);
             }
         }
 
@@ -660,26 +724,42 @@ namespace GpdGui
                 if (type == "Macro" && item.Def.Type == "Millis")
                 {
                     SetCaptureButtonState(type, false);
-                    combo.AutoCompleteMode = AutoCompleteMode.None;
-                    combo.AutoCompleteSource = AutoCompleteSource.None;
-                    combo.DropDownStyle = ComboBoxStyle.DropDown;
-                    combo.Text = currentVal;
+                    _suppressComboEvents = true;
+                    try
+                    {
+                        combo.AutoCompleteMode = AutoCompleteMode.None;
+                        combo.AutoCompleteSource = AutoCompleteSource.None;
+                        combo.DropDownStyle = ComboBoxStyle.DropDown;
+                        combo.Text = currentVal;
+                    }
+                    finally
+                    {
+                        _suppressComboEvents = false;
+                    }
                     return;
                 }
 
                 SetCaptureButtonState(type, true);
-                if (combo.Items.Count == 0) PopulateKeyCombo(combo);
-                combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                combo.AutoCompleteSource = AutoCompleteSource.ListItems;
-                combo.DropDownStyle = ComboBoxStyle.DropDown;
-                int index = combo.FindStringExact(currentVal);
-                if (index != -1) 
+                _suppressComboEvents = true;
+                try
                 {
-                    combo.SelectedIndex = index; 
+                    if (combo.Items.Count == 0) PopulateKeyCombo(combo);
+                    combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                    combo.AutoCompleteSource = AutoCompleteSource.ListItems;
+                    combo.DropDownStyle = ComboBoxStyle.DropDown;
+                    int index = combo.FindStringExact(currentVal);
+                    if (index != -1)
+                    {
+                        combo.SelectedIndex = index;
+                    }
+                    else
+                    {
+                        combo.Text = currentVal;
+                    }
                 }
-                else
+                finally
                 {
-                    combo.Text = currentVal;
+                    _suppressComboEvents = false;
                 }
             }
             else if (type == "Macro")
@@ -690,12 +770,14 @@ namespace GpdGui
 
         private void ValueCombo_SelectedIndexChanged(object sender, EventArgs e)
         {
-             UpdateCurrentConfigFromUI();
+            if (_suppressComboEvents) return;
+            TryApplyComboValue((ComboBox)sender, false);
         }
         
         private void ValueCombo_LostFocus(object sender, EventArgs e)
         {
-             UpdateCurrentConfigFromUI();
+            if (_suppressComboEvents) return;
+            TryApplyComboValue((ComboBox)sender, false);
         }
 
         private void CaptureKey_Click(object sender, EventArgs e)
@@ -727,60 +809,20 @@ namespace GpdGui
                     {
                         combo.DropDownStyle = ComboBoxStyle.DropDown;
                         combo.Text = key;
-                        UpdateCurrentConfigFromUI(); 
+                        TryApplyComboValue(combo, false);
                     }
                 }
             }
         }
 
-        private void UpdateCurrentConfigFromUI()
-        {
-             // Find which tab is active or check all?
-             // Or just check the active one.
-             // But "Apply" might be clicked while focus is anywhere.
-             
-             foreach(var kvp in tabLists)
-             {
-                 ListBox list = kvp.Value;
-                 ComboBox combo = tabCombos[kvp.Key];
-                 
-                 if (list.SelectedItem is ConfigItem)
-                 {
-                     ConfigItem item = (ConfigItem)list.SelectedItem;
-                     try
-                     {
-                         string val = combo.Text;
-                         if (!string.IsNullOrWhiteSpace(val))
-                         {
-                             if (item.Def.Type == "Millis")
-                             {
-                                 ushort parsedMs;
-                                 if (!ushort.TryParse(val, out parsedMs))
-                                 {
-                                     throw new Exception("Delay must be an integer between 0 and 65535.");
-                                 }
-                             }
-
-                             item.Config.Set(item.Def.Name, val);
-                             int idx = list.SelectedIndex;
-                             list.Items[idx] = item; 
-                             list.SelectedIndex = idx;
-                         }
-                     }
-                     catch (Exception ex)
-                     {
-                         statusLabel.Text = "Invalid value for " + item.Def.Name + ".";
-                         MessageBox.Show("Invalid value for '" + item.Def.Name + "': " + ex.Message);
-                     }
-                 }
-             }
-        }
-
         private void ApplyButton_Click(object sender, EventArgs e)
         {
             if (!EnsureConnectedAndLoaded()) return;
-            // Ensure current selection is committed
-            UpdateCurrentConfigFromUI();
+            if (!CommitAllEditorValues(true))
+            {
+                GuiLogger.Log("Apply aborted due to invalid editor value.");
+                return;
+            }
 
             try
             {
@@ -788,12 +830,14 @@ namespace GpdGui
                 Application.DoEvents();
                 device.WriteConfig(currentConfig.Raw);
                 statusLabel.Text = "Saved successfully.";
+                GuiLogger.Log("Configuration written to device.");
                 MessageBox.Show("Configuration saved to device!");
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Error writing: " + ex.Message);
                 statusLabel.Text = "Write failed.";
+                GuiLogger.LogException("Apply write failed", ex);
             }
         }
 
@@ -817,12 +861,14 @@ namespace GpdGui
                     device.WriteConfig(currentConfig.Raw);
                     RefreshList();
                     statusLabel.Text = "Defaults restored and written to device.";
+                    GuiLogger.Log("Defaults restored and written.");
                     MessageBox.Show("Defaults restored successfully.");
                 }
                 catch (Exception ex)
                 {
                     MessageBox.Show("Reset failed: " + ex.Message);
                     statusLabel.Text = "Reset failed.";
+                    GuiLogger.LogException("Reset failed", ex);
                 }
             }
         }
@@ -841,6 +887,7 @@ namespace GpdGui
                     MessageBox.Show("Could not connect to device: " + ex.Message);
                     statusLabel.Text = "Disconnected.";
                     SetConnectedState(false);
+                    GuiLogger.LogException("Reload connection failed", ex);
                     return;
                 }
             }
@@ -972,6 +1019,47 @@ namespace GpdGui
         }
     }
 
+    public static class GuiLogger
+    {
+        private static readonly object Sync = new object();
+        private static readonly string LogPath;
+
+        static GuiLogger()
+        {
+            try
+            {
+                string logDir = Path.Combine(AppDomain.CurrentDomain.BaseDirectory, "logs");
+                Directory.CreateDirectory(logDir);
+                LogPath = Path.Combine(logDir, "gpdgui-" + DateTime.Now.ToString("yyyyMMdd") + ".log");
+            }
+            catch
+            {
+                LogPath = null;
+            }
+        }
+
+        public static void Log(string message)
+        {
+            if (string.IsNullOrEmpty(LogPath)) return;
+            try
+            {
+                lock (Sync)
+                {
+                    File.AppendAllText(LogPath, DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss.fff") + " " + message + Environment.NewLine);
+                }
+            }
+            catch
+            {
+            }
+        }
+
+        public static void LogException(string context, Exception ex)
+        {
+            if (ex == null) Log(context);
+            else Log(context + ": " + ex.ToString());
+        }
+    }
+
     public static class InputBox
     {
         public static string Show(string title, string promptText)
@@ -1029,6 +1117,7 @@ namespace GpdGui
             }
             catch (Exception ex)
             {
+                GuiLogger.LogException("Critical UI exception", ex);
                 MessageBox.Show(ex.ToString(), "Critical Error", MessageBoxButtons.OK, MessageBoxIcon.Error);
             }
         }
