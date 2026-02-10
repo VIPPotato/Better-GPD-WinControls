@@ -733,6 +733,10 @@ namespace GpdGui
             editBtn.Click += EditProfile_Click;
             buttonPanel.Controls.Add(editBtn);
 
+            Button diffBtn = new Button(); diffBtn.Text = "View Diff"; diffBtn.Width = 150; diffBtn.AutoSize = true;
+            diffBtn.Click += ViewProfileDiff_Click;
+            buttonPanel.Controls.Add(diffBtn);
+
             Button saveBtn = new Button(); saveBtn.Text = "Save GUI to Profile"; saveBtn.Width = 150; saveBtn.AutoSize = true;
             saveBtn.Click += SaveProfileChanges_Click;
             buttonPanel.Controls.Add(saveBtn);
@@ -829,6 +833,71 @@ namespace GpdGui
                 MessageBox.Show("Profile loaded into GUI. Click 'Apply Changes' to write to device.");
             }
             catch (Exception ex) { MessageBox.Show("Error loading: " + ex.Message); GuiLogger.LogException("Edit/load profile failed", ex); }
+        }
+
+        private void ViewProfileDiff_Click(object sender, EventArgs e)
+        {
+            if (!EnsureConnectedAndLoaded()) return;
+            if (profilesList.SelectedItem == null)
+            {
+                MessageBox.Show("Select a profile first.");
+                return;
+            }
+
+            string name = profilesList.SelectedItem.ToString();
+            string path;
+            string err;
+            if (!TryResolveProfilePath(name, out path, out err))
+            {
+                MessageBox.Show(err);
+                return;
+            }
+
+            try
+            {
+                string[] lines = File.ReadAllLines(path);
+                Config preview = new Config((byte[])currentConfig.Raw.Clone());
+                Config.LoadFromProfile(preview, lines);
+
+                List<string> changes = new List<string>();
+                foreach (Config.FieldDef def in Config.Fields)
+                {
+                    string before = currentConfig.GetValue(def);
+                    string after = preview.GetValue(def);
+                    if (!string.Equals(before, after, StringComparison.OrdinalIgnoreCase))
+                    {
+                        changes.Add(string.Format("{0}: {1} -> {2}", def.Name, before, after));
+                    }
+                }
+
+                if (changes.Count == 0)
+                {
+                    MessageBox.Show("No differences found between current GUI state and this profile.");
+                    return;
+                }
+
+                Form diffForm = new Form();
+                diffForm.Text = "Profile Diff: " + name;
+                diffForm.Size = new Size(700, 500);
+                diffForm.StartPosition = FormStartPosition.CenterParent;
+
+                TextBox diffText = new TextBox();
+                diffText.Multiline = true;
+                diffText.ReadOnly = true;
+                diffText.ScrollBars = ScrollBars.Both;
+                diffText.Dock = DockStyle.Fill;
+                diffText.Font = new Font("Consolas", 10F);
+                diffText.Text = string.Join(Environment.NewLine, changes.ToArray());
+
+                diffForm.Controls.Add(diffText);
+                GuiLogger.Log("Viewed profile diff: " + name + " (changes=" + changes.Count + ")");
+                diffForm.ShowDialog(this);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error generating diff: " + ex.Message);
+                GuiLogger.LogException("View profile diff failed", ex);
+            }
         }
 
         private void LoadProfile_Click(object sender, EventArgs e)
