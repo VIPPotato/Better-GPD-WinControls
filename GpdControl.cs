@@ -619,6 +619,37 @@ namespace GpdControl
 
     class CliProgram
     {
+        private static bool TryResolveProfilePath(string profilesDir, string profileName, out string fullPath, out string error)
+        {
+            fullPath = null;
+            error = null;
+
+            if (string.IsNullOrWhiteSpace(profileName))
+            {
+                error = "Profile name cannot be empty.";
+                return false;
+            }
+
+            if (profileName.IndexOfAny(Path.GetInvalidFileNameChars()) >= 0 || profileName.Contains("\\") || profileName.Contains("/"))
+            {
+                error = "Profile name contains invalid characters.";
+                return false;
+            }
+
+            string candidate = Path.GetFullPath(Path.Combine(profilesDir, profileName + ".txt"));
+            string baseDir = Path.GetFullPath(profilesDir).TrimEnd(Path.DirectorySeparatorChar, Path.AltDirectorySeparatorChar)
+                + Path.DirectorySeparatorChar;
+
+            if (!candidate.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase))
+            {
+                error = "Profile path escapes the profiles directory.";
+                return false;
+            }
+
+            fullPath = candidate;
+            return true;
+        }
+
         static void Main(string[] args)
         {
             if (args.Length == 0)
@@ -688,7 +719,13 @@ namespace GpdControl
                         if (subCmd == "load")
                         {
                             if (args.Length < 3) { Console.WriteLine("Usage: profile load <name>"); return; }
-                            string path = Path.Combine(profilesDir, args[2] + ".txt");
+                            string path;
+                            string err;
+                            if (!TryResolveProfilePath(profilesDir, args[2], out path, out err))
+                            {
+                                Console.WriteLine("Error: " + err);
+                                return;
+                            }
                             if (File.Exists(path))
                             {
                                 string[] lines = File.ReadAllLines(path);
@@ -704,7 +741,13 @@ namespace GpdControl
                         else if (subCmd == "del")
                         {
                             if (args.Length < 3) { Console.WriteLine("Usage: profile del <name>"); return; }
-                            string path = Path.Combine(profilesDir, args[2] + ".txt");
+                            string path;
+                            string err;
+                            if (!TryResolveProfilePath(profilesDir, args[2], out path, out err))
+                            {
+                                Console.WriteLine("Error: " + err);
+                                return;
+                            }
                             if (File.Exists(path))
                             {
                                 File.Delete(path);
