@@ -65,3 +65,8 @@ GPLv3
 ## Thanks to
 
 **Cryolitia** - For reverse-engineering the WinControls protocol and making this possible.
+
+## Support
+
+If you like what I do, I would appreciate a coffee:
+https://buymeacoffee.com/potatophones
