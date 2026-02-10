@@ -110,6 +110,7 @@ namespace GpdGui
 
         private Dictionary<string, ListBox> tabLists = new Dictionary<string, ListBox>();
         private Dictionary<string, ComboBox> tabCombos = new Dictionary<string, ComboBox>();
+        private Dictionary<string, Button> tabCaptureButtons = new Dictionary<string, Button>();
         // For settings tab controls
         private Dictionary<string, Control> settingControls = new Dictionary<string, Control>();
 
@@ -185,6 +186,16 @@ namespace GpdGui
             combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
         }
 
+        private void SetCaptureButtonState(string type, bool enabled)
+        {
+            Button captureButton;
+            if (tabCaptureButtons.TryGetValue(type, out captureButton))
+            {
+                captureButton.Enabled = enabled;
+                captureButton.Visible = enabled;
+            }
+        }
+
         private void CreateListTab(TabPage tab, string filterType)
         {
             SplitContainer contentSplit = new SplitContainer();
@@ -235,7 +246,9 @@ namespace GpdGui
                 capBtn.AutoSize = true;
                 capBtn.Tag = combo; // Link to combo
                 capBtn.Click += CaptureKey_Click;
+                capBtn.Visible = (filterType == "Key");
                 editPanel.Controls.Add(capBtn);
+                tabCaptureButtons[filterType] = capBtn;
             }
 
             contentSplit.Panel2.Controls.Add(editPanel);
@@ -646,6 +659,7 @@ namespace GpdGui
 
                 if (type == "Macro" && item.Def.Type == "Millis")
                 {
+                    SetCaptureButtonState(type, false);
                     combo.AutoCompleteMode = AutoCompleteMode.None;
                     combo.AutoCompleteSource = AutoCompleteSource.None;
                     combo.DropDownStyle = ComboBoxStyle.DropDown;
@@ -653,6 +667,7 @@ namespace GpdGui
                     return;
                 }
 
+                SetCaptureButtonState(type, true);
                 if (combo.Items.Count == 0) PopulateKeyCombo(combo);
                 combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
                 combo.AutoCompleteSource = AutoCompleteSource.ListItems;
@@ -666,6 +681,10 @@ namespace GpdGui
                 {
                     combo.Text = currentVal;
                 }
+            }
+            else if (type == "Macro")
+            {
+                SetCaptureButtonState(type, false);
             }
         }
 
