@@ -107,6 +107,16 @@ namespace GpdGui
             checkUpdatesButton.AutoSize = true;
             checkUpdatesButton.Click += CheckUpdatesButton_Click;
 
+            Button backupButton = new Button();
+            backupButton.Text = "Backup Config";
+            backupButton.AutoSize = true;
+            backupButton.Click += BackupButton_Click;
+
+            Button restoreButton = new Button();
+            restoreButton.Text = "Restore Config";
+            restoreButton.AutoSize = true;
+            restoreButton.Click += RestoreButton_Click;
+
             Button aboutButton = new Button();
             aboutButton.Text = "About";
             aboutButton.AutoSize = true;
@@ -118,6 +128,8 @@ namespace GpdGui
             exitButton.Click += ExitButton_Click;
 
             footerPanel.Controls.Add(checkUpdatesButton);
+            footerPanel.Controls.Add(backupButton);
+            footerPanel.Controls.Add(restoreButton);
             footerPanel.Controls.Add(aboutButton);
             footerPanel.Controls.Add(exitButton);
             mainLayout.Controls.Add(footerPanel, 0, 2);
@@ -241,6 +253,69 @@ namespace GpdGui
         private void CheckUpdatesButton_Click(object sender, EventArgs e)
         {
             CheckForUpdates(true);
+        }
+
+        private void BackupButton_Click(object sender, EventArgs e)
+        {
+            if (!EnsureConnectedAndLoaded()) return;
+
+            SaveFileDialog sfd = new SaveFileDialog();
+            sfd.Filter = "Binary Files (*.bin)|*.bin|All Files (*.*)|*.*";
+            sfd.FileName = "gpd-config-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".bin";
+            if (sfd.ShowDialog() != DialogResult.OK) return;
+
+            try
+            {
+                byte[] data = device.ReadConfig();
+                File.WriteAllBytes(sfd.FileName, data);
+                statusLabel.Text = "Backup saved: " + Path.GetFileName(sfd.FileName);
+                GuiLogger.Log("Backup saved to " + sfd.FileName);
+                MessageBox.Show("Backup saved.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Backup failed: " + ex.Message);
+                statusLabel.Text = "Backup failed.";
+                GuiLogger.LogException("Backup failed", ex);
+            }
+        }
+
+        private void RestoreButton_Click(object sender, EventArgs e)
+        {
+            if (!EnsureConnectedAndLoaded()) return;
+
+            OpenFileDialog ofd = new OpenFileDialog();
+            ofd.Filter = "Binary Files (*.bin)|*.bin|All Files (*.*)|*.*";
+            if (ofd.ShowDialog() != DialogResult.OK) return;
+
+            try
+            {
+                byte[] raw = File.ReadAllBytes(ofd.FileName);
+                if (raw.Length != 256)
+                {
+                    MessageBox.Show("Invalid backup size. Expected 256 bytes.");
+                    statusLabel.Text = "Restore failed.";
+                    return;
+                }
+
+                if (MessageBox.Show("Restore this backup to device firmware?", "Confirm Restore", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+                {
+                    return;
+                }
+
+                device.WriteConfig(raw);
+                currentConfig = new Config((byte[])raw.Clone());
+                RefreshList();
+                statusLabel.Text = "Restore completed.";
+                GuiLogger.Log("Restore completed from " + ofd.FileName);
+                MessageBox.Show("Restore completed.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Restore failed: " + ex.Message);
+                statusLabel.Text = "Restore failed.";
+                GuiLogger.LogException("Restore failed", ex);
+            }
         }
 
         private void AboutButton_Click(object sender, EventArgs e)
