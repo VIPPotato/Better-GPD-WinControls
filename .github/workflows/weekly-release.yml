@@ -1,0 +1,104 @@
+name: Weekly Release
+
+on:
+  schedule:
+    # Every Sunday at 03:00 UTC
+    - cron: "0 3 * * 0"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check if release is needed
+        id: gate
+        uses: actions/github-script@v7
+        with:
+          script: |
+            const { owner, repo } = context.repo;
+            let latestTag = "";
+
+            try {
+              const latest = await github.rest.repos.getLatestRelease({ owner, repo });
+              latestTag = latest.data.tag_name;
+              core.info(`Latest release tag: ${latestTag}`);
+              core.setOutput("latest_tag", latestTag);
+            } catch (error) {
+              if (error.status === 404) {
+                core.info("No previous release found. A release will be created.");
+                core.setOutput("latest_tag", "");
+                core.setOutput("should_release", "true");
+                return;
+              }
+              throw error;
+            }
+
+            const compare = await github.rest.repos.compareCommitsWithBasehead({
+              owner,
+              repo,
+              basehead: `${latestTag}...${context.sha}`,
+            });
+
+            const aheadBy = compare.data.ahead_by || 0;
+            core.info(`Commits since ${latestTag}: ${aheadBy}`);
+            core.setOutput("should_release", aheadBy > 0 ? "true" : "false");
+
+      - name: Skip (no new commits)
+        if: steps.gate.outputs.should_release != 'true'
+        shell: pwsh
+        run: |
+          Write-Host "No commits since latest release tag '$env:LATEST_TAG'. Skipping build."
+        env:
+          LATEST_TAG: ${{ steps.gate.outputs.latest_tag }}
+
+      - name: Compute release metadata
+        if: steps.gate.outputs.should_release == 'true'
+        id: meta
+        shell: pwsh
+        run: |
+          $date = Get-Date -Format 'yyyyMMdd'
+          $sha = $env:GITHUB_SHA.Substring(0, 7)
+          $tag = "weekly-$date-$sha"
+          $name = "Weekly build $date ($sha)"
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "name=$name" >> $env:GITHUB_OUTPUT
+
+      - name: Build binaries
+        if: steps.gate.outputs.should_release == 'true'
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $csc = "$env:windir\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path $csc)) {
+            throw "csc.exe not found at: $csc"
+          }
+
+          & $csc /target:exe /out:GpdControl.exe GpdControl.cs
+          & $csc /target:winexe /out:GpdGui.exe /main:GpdGui.Program GpdGui.cs GpdControl.cs
+
+      - name: Package release assets
+        if: steps.gate.outputs.should_release == 'true'
+        id: package
+        shell: pwsh
+        run: |
+          $artifact = "gpd-win-controls-access-${{ steps.meta.outputs.tag }}.zip"
+          New-Item -Path dist -ItemType Directory -Force | Out-Null
+          Copy-Item -Path GpdControl.exe, GpdGui.exe, default_mappings.txt, readme.md -Destination dist
+          Compress-Archive -Path dist\* -DestinationPath $artifact -Force
+          "artifact=$artifact" >> $env:GITHUB_OUTPUT
+
+      - name: Create GitHub release
+        if: steps.gate.outputs.should_release == 'true'
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.meta.outputs.tag }}
+          name: ${{ steps.meta.outputs.name }}
+          generate_release_notes: true
+          files: ${{ steps.package.outputs.artifact }}

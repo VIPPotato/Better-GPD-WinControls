@@ -18,7 +18,7 @@ namespace GpdGui
 
         public MainForm()
         {
-            this.Text = "GPD Win 4 Controller Access";
+            this.Text = "Better GPD WinControl";
             this.Size = new Size(600, 500);
             this.StartPosition = FormStartPosition.CenterScreen;
 
