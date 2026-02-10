@@ -145,6 +145,14 @@ namespace GpdGui
             return true;
         }
 
+        private void PopulateKeyCombo(ComboBox combo)
+        {
+            combo.Items.Clear();
+            foreach (string key in KeyCodes.Map.Keys) combo.Items.Add(key);
+            combo.AutoCompleteSource = AutoCompleteSource.ListItems;
+            combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+        }
+
         private void CreateListTab(TabPage tab, string filterType)
         {
             SplitContainer contentSplit = new SplitContainer();
@@ -171,12 +179,7 @@ namespace GpdGui
             combo.DropDownStyle = ComboBoxStyle.DropDownList;
             combo.Tag = list; // Link back to list
             
-            if (filterType == "Key" || filterType == "Macro")
-            {
-                combo.AutoCompleteSource = AutoCompleteSource.ListItems;
-                combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
-                foreach (string key in KeyCodes.Map.Keys) combo.Items.Add(key);
-            }
+            if (filterType == "Key" || filterType == "Macro") PopulateKeyCombo(combo);
             // For Macros, we might want delays (Millis) too? 
             // Handled by filter logic later.
 
@@ -537,7 +540,19 @@ namespace GpdGui
             {
                 ConfigItem item = (ConfigItem)list.SelectedItem;
                 string currentVal = item.Config.GetValue(item.Def);
-                
+
+                if (type == "Macro" && item.Def.Type == "Millis")
+                {
+                    combo.AutoCompleteMode = AutoCompleteMode.None;
+                    combo.AutoCompleteSource = AutoCompleteSource.None;
+                    combo.DropDownStyle = ComboBoxStyle.DropDown;
+                    combo.Text = currentVal;
+                    return;
+                }
+
+                if (combo.Items.Count == 0) PopulateKeyCombo(combo);
+                combo.AutoCompleteMode = AutoCompleteMode.SuggestAppend;
+                combo.AutoCompleteSource = AutoCompleteSource.ListItems;
                 int index = combo.FindStringExact(currentVal);
                 if (index != -1) 
                 {
@@ -566,6 +581,16 @@ namespace GpdGui
         {
             Button btn = (Button)sender;
             ComboBox combo = (ComboBox)btn.Tag;
+            ListBox list = combo.Tag as ListBox;
+            if (list != null && list.SelectedItem is ConfigItem)
+            {
+                ConfigItem selected = (ConfigItem)list.SelectedItem;
+                if (selected.Def.Type == "Millis")
+                {
+                    MessageBox.Show("Capture Key is only available for key mapping fields.");
+                    return;
+                }
+            }
             
             using (KeyCaptureForm form = new KeyCaptureForm())
             {
@@ -606,13 +631,26 @@ namespace GpdGui
                          string val = combo.Text;
                          if (!string.IsNullOrWhiteSpace(val))
                          {
+                             if (item.Def.Type == "Millis")
+                             {
+                                 ushort parsedMs;
+                                 if (!ushort.TryParse(val, out parsedMs))
+                                 {
+                                     throw new Exception("Delay must be an integer between 0 and 65535.");
+                                 }
+                             }
+
                              item.Config.Set(item.Def.Name, val);
                              int idx = list.SelectedIndex;
                              list.Items[idx] = item; 
                              list.SelectedIndex = idx;
                          }
                      }
-                     catch (Exception) { }
+                     catch (Exception ex)
+                     {
+                         statusLabel.Text = "Invalid value for " + item.Def.Name + ".";
+                         MessageBox.Show("Invalid value for '" + item.Def.Name + "': " + ex.Message);
+                     }
                  }
              }
         }

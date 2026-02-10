@@ -519,15 +519,21 @@ namespace GpdControl
             {
                 case "Key":
                     byte code;
-                    if (KeyCodes.Map.TryGetValue(value.ToUpper(), out code))
+                    string normalized = value.Trim().ToUpperInvariant();
+                    if (normalized.StartsWith("0X"))
                     {
-                        Raw[def.Offset] = code; // Write keycode to first byte (Little Endian)
-                        Raw[def.Offset + 1] = 0x00; // Zero second byte
+                        if (!byte.TryParse(normalized.Substring(2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out code))
+                        {
+                            throw new Exception(string.Format("Invalid hex keycode: {0}", value));
+                        }
                     }
-                    else
+                    else if (!KeyCodes.Map.TryGetValue(normalized, out code))
                     {
                         throw new Exception(string.Format("Invalid key: {0}", value));
                     }
+
+                    Raw[def.Offset] = code; // Write keycode to first byte (Little Endian)
+                    Raw[def.Offset + 1] = 0x00; // Zero second byte
                     break;
                 case "Signed":
                     sbyte sb = sbyte.Parse(value);
