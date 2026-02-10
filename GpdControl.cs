@@ -346,36 +346,15 @@ namespace GpdControl
         {
             if (config.Length != 256) throw new ArgumentException("Config must be 256 bytes");
 
-            // Map 16-byte blocks to Load packets
-            // load0 -> Block 0 (0-15)
-            // load1 -> Block 1 (16-31)
-            // load2 -> Block 2 (32-47)
-            // load3 -> Block 3 (48-63)
-            // load4 -> Block 4 (64-79)
-            // load5 -> Block 5 (80-95)
-
-            byte[] load0 = new byte[25];
-            byte[] load1 = new byte[25];
-            byte[] load2 = new byte[25];
-            byte[] load3 = new byte[25];
-            byte[] load4 = new byte[25];
-            byte[] load5 = new byte[25];
-
-            // Copy 16 bytes for each block
-            Array.Copy(config, 0, load0, 0, 16);
-            Array.Copy(config, 16, load1, 0, 16);
-            Array.Copy(config, 32, load2, 0, 16);
-            Array.Copy(config, 48, load3, 0, 16);
-            Array.Copy(config, 64, load4, 0, 16);
-            Array.Copy(config, 80, load5, 0, 16);
-
-            // Send Writes
-            SendReq(0x21, 0x00, load0); // Minor0
-            SendReq(0x21, 0x01, load1); // Minor1
-            SendReq(0x21, 0x02, load2); // Minor2
-            SendReq(0x21, 0x03, load3); // Minor3
-            SendReq(0x21, 0x04, load4); // Minor4
-            SendReq(0x21, 0x05, load5); // Minor5
+            // Reference protocol writes 8 x 16-byte blocks with a 2-byte index in the payload.
+            for (int block = 0; block < 8; block++)
+            {
+                byte[] payload = new byte[18];
+                payload[0] = (byte)block; // index low
+                payload[1] = 0x00;        // index high
+                Array.Copy(config, block * 16, payload, 2, 16);
+                SendReq(0x21, 0x00, payload);
+            }
 
             byte[] response = SendReq(0x22, 0x00, null); // Checksum. Minor 0
 
