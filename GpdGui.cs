@@ -360,6 +360,10 @@ namespace GpdGui
             editBtn.Click += EditProfile_Click;
             buttonPanel.Controls.Add(editBtn);
 
+            Button saveBtn = new Button(); saveBtn.Text = "Save GUI to Profile"; saveBtn.Width = 150; saveBtn.AutoSize = true;
+            saveBtn.Click += SaveProfileChanges_Click;
+            buttonPanel.Controls.Add(saveBtn);
+
             Button loadBtn = new Button(); loadBtn.Text = "Load (Write to Device)"; loadBtn.Width = 150; loadBtn.AutoSize = true;
             loadBtn.Click += LoadProfile_Click;
             buttonPanel.Controls.Add(loadBtn);
@@ -476,6 +480,41 @@ namespace GpdGui
                     MessageBox.Show("Profile written successfully!");
                 }
                 catch (Exception ex) { MessageBox.Show("Error writing: " + ex.Message); }
+            }
+        }
+
+        private void SaveProfileChanges_Click(object sender, EventArgs e)
+        {
+            if (currentConfig == null)
+            {
+                MessageBox.Show("No configuration is loaded in the GUI.");
+                return;
+            }
+
+            if (profilesList.SelectedItem == null)
+            {
+                MessageBox.Show("Select a profile first.");
+                return;
+            }
+
+            string name = profilesList.SelectedItem.ToString();
+            string path;
+            string err;
+            if (!TryResolveProfilePath(name, out path, out err))
+            {
+                MessageBox.Show(err);
+                return;
+            }
+
+            try
+            {
+                System.IO.File.WriteAllText(path, currentConfig.ToProfileString());
+                statusLabel.Text = "Profile '" + name + "' saved from GUI state.";
+                MessageBox.Show("Profile saved.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Error saving profile: " + ex.Message);
             }
         }
 
