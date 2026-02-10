@@ -3,6 +3,10 @@ using System.Windows.Forms;
 using System.Drawing;
 using System.Collections.Generic;
 using System.IO;
+using System.Diagnostics;
+using System.Net;
+using System.Text.RegularExpressions;
+using System.Threading;
 using GpdControl;
 
 namespace GpdGui
@@ -13,9 +17,13 @@ namespace GpdGui
         // private ComboBox valueCombo;
         private Button applyButton;
         private Button reloadButton;
+        private Button checkUpdatesButton;
         private Label statusLabel;
         private Config currentConfig;
         private GpdDevice device;
+        private const string CurrentAppVersion = "1.0.0";
+        private const string ReleasesApiUrl = "https://api.github.com/repos/VIPPotato/Better-GPD-WinControls/releases/latest";
+        private const string ReleasesPageUrl = "https://github.com/VIPPotato/Better-GPD-WinControls/releases";
 
         public MainForm()
         {
@@ -26,9 +34,10 @@ namespace GpdGui
             // Layout
             TableLayoutPanel mainLayout = new TableLayoutPanel();
             mainLayout.Dock = DockStyle.Fill;
-            mainLayout.RowCount = 3;
+            mainLayout.RowCount = 4;
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); // Top buttons
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Percent, 100)); // Content
+            mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 40)); // Footer buttons
             mainLayout.RowStyles.Add(new RowStyle(SizeType.Absolute, 30)); // Status
             this.Controls.Add(mainLayout);
 
@@ -85,7 +94,33 @@ namespace GpdGui
             statusLabel.Dock = DockStyle.Fill;
             statusLabel.TextAlign = ContentAlignment.MiddleLeft;
             statusLabel.Text = "Ready.";
-            mainLayout.Controls.Add(statusLabel, 0, 2);
+            mainLayout.Controls.Add(statusLabel, 0, 3);
+
+            // Footer Buttons (visible across all tabs)
+            FlowLayoutPanel footerPanel = new FlowLayoutPanel();
+            footerPanel.Dock = DockStyle.Fill;
+            footerPanel.FlowDirection = FlowDirection.LeftToRight;
+            footerPanel.WrapContents = false;
+
+            checkUpdatesButton = new Button();
+            checkUpdatesButton.Text = "Check for Updates";
+            checkUpdatesButton.AutoSize = true;
+            checkUpdatesButton.Click += CheckUpdatesButton_Click;
+
+            Button aboutButton = new Button();
+            aboutButton.Text = "About";
+            aboutButton.AutoSize = true;
+            aboutButton.Click += AboutButton_Click;
+
+            Button exitButton = new Button();
+            exitButton.Text = "Exit";
+            exitButton.AutoSize = true;
+            exitButton.Click += ExitButton_Click;
+
+            footerPanel.Controls.Add(checkUpdatesButton);
+            footerPanel.Controls.Add(aboutButton);
+            footerPanel.Controls.Add(exitButton);
+            mainLayout.Controls.Add(footerPanel, 0, 2);
 
             this.Shown += (s, e) => 
             {
@@ -105,6 +140,8 @@ namespace GpdGui
                     SetConnectedState(false);
                     GuiLogger.LogException("Initial device connection failed", ex);
                 }
+
+                CheckForUpdates(false);
             };
 
             SetConnectedState(false);
@@ -198,6 +235,174 @@ namespace GpdGui
             {
                 captureButton.Enabled = enabled;
                 captureButton.Visible = enabled;
+            }
+        }
+
+        private void CheckUpdatesButton_Click(object sender, EventArgs e)
+        {
+            CheckForUpdates(true);
+        }
+
+        private void AboutButton_Click(object sender, EventArgs e)
+        {
+            string aboutText =
+                "Better GPD WinControl is a lightweight tool for configuring GPD Win controller mappings." + Environment.NewLine + Environment.NewLine +
+                "Author: VIPPotato" + Environment.NewLine +
+                "Version: " + CurrentAppVersion + Environment.NewLine + Environment.NewLine +
+                "Thanks to everyone who reverse engineered the protocol and shared their findings.";
+            MessageBox.Show(aboutText, "About", MessageBoxButtons.OK, MessageBoxIcon.Information);
+        }
+
+        private void ExitButton_Click(object sender, EventArgs e)
+        {
+            Close();
+        }
+
+        private void CheckForUpdates(bool manual)
+        {
+            if (checkUpdatesButton != null) checkUpdatesButton.Enabled = false;
+            if (manual) statusLabel.Text = "Checking for updates...";
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                string latestTag;
+                string releaseUrl;
+                string error;
+                bool success = TryFetchLatestRelease(out latestTag, out releaseUrl, out error);
+
+                Action complete = delegate
+                {
+                    if (checkUpdatesButton != null) checkUpdatesButton.Enabled = true;
+
+                    if (!success)
+                    {
+                        if (manual) MessageBox.Show("Update check failed: " + error);
+                        statusLabel.Text = "Update check failed.";
+                        GuiLogger.Log("Update check failed: " + error);
+                        return;
+                    }
+
+                    Version currentVersion;
+                    if (!TryParseVersion(CurrentAppVersion, out currentVersion))
+                    {
+                        currentVersion = new Version(0, 0, 0, 0);
+                    }
+
+                    Version latestVersion;
+                    if (!TryParseVersion(latestTag, out latestVersion))
+                    {
+                        if (manual) MessageBox.Show("Could not parse latest release version: " + latestTag);
+                        statusLabel.Text = "Update check finished.";
+                        GuiLogger.Log("Could not parse latest release version: " + latestTag);
+                        return;
+                    }
+
+                    if (latestVersion > currentVersion)
+                    {
+                        statusLabel.Text = "Update available: " + latestTag;
+                        GuiLogger.Log("Update available. Current=" + CurrentAppVersion + " Latest=" + latestTag);
+                        DialogResult result = MessageBox.Show(
+                            "A newer version is available (" + latestTag + "). Open the releases page?",
+                            "Update Available",
+                            MessageBoxButtons.YesNo,
+                            MessageBoxIcon.Information);
+                        if (result == DialogResult.Yes)
+                        {
+                            OpenUrl(releaseUrl);
+                        }
+                    }
+                    else
+                    {
+                        statusLabel.Text = "You are up to date.";
+                        GuiLogger.Log("No update found. Current=" + CurrentAppVersion + " Latest=" + latestTag);
+                        if (manual)
+                        {
+                            MessageBox.Show("You are up to date (" + CurrentAppVersion + ").");
+                        }
+                    }
+                };
+
+                try
+                {
+                    if (IsHandleCreated && !IsDisposed)
+                    {
+                        BeginInvoke(complete);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    GuiLogger.LogException("Failed to finish update-check UI flow", ex);
+                }
+            });
+        }
+
+        private bool TryFetchLatestRelease(out string latestTag, out string releaseUrl, out string error)
+        {
+            latestTag = null;
+            releaseUrl = ReleasesPageUrl;
+            error = null;
+
+            try
+            {
+                using (WebClient client = new WebClient())
+                {
+                    client.Headers[HttpRequestHeader.UserAgent] = "Better-GPD-WinControls/" + CurrentAppVersion;
+                    client.Headers[HttpRequestHeader.Accept] = "application/vnd.github+json";
+                    string json = client.DownloadString(ReleasesApiUrl);
+
+                    Match tagMatch = Regex.Match(json, "\"tag_name\"\\s*:\\s*\"([^\"]+)\"");
+                    if (!tagMatch.Success)
+                    {
+                        error = "GitHub response did not include tag_name.";
+                        return false;
+                    }
+
+                    Match urlMatch = Regex.Match(json, "\"html_url\"\\s*:\\s*\"([^\"]+)\"");
+                    if (urlMatch.Success)
+                    {
+                        releaseUrl = Regex.Unescape(urlMatch.Groups[1].Value);
+                    }
+
+                    latestTag = Regex.Unescape(tagMatch.Groups[1].Value);
+                    return true;
+                }
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return false;
+            }
+        }
+
+        private bool TryParseVersion(string rawVersion, out Version version)
+        {
+            version = null;
+            if (string.IsNullOrWhiteSpace(rawVersion)) return false;
+
+            string cleaned = rawVersion.Trim();
+            if (cleaned.StartsWith("v", StringComparison.OrdinalIgnoreCase))
+            {
+                cleaned = cleaned.Substring(1);
+            }
+
+            Match match = Regex.Match(cleaned, @"^(\d+(?:\.\d+){0,3})");
+            if (!match.Success) return false;
+            return Version.TryParse(match.Groups[1].Value, out version);
+        }
+
+        private void OpenUrl(string url)
+        {
+            try
+            {
+                ProcessStartInfo psi = new ProcessStartInfo(url);
+                psi.UseShellExecute = true;
+                Process.Start(psi);
+                GuiLogger.Log("Opened URL: " + url);
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show("Could not open browser: " + ex.Message);
+                GuiLogger.LogException("Failed to open URL: " + url, ex);
             }
         }
 
