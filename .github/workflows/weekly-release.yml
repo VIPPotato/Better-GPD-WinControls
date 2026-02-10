@@ -89,9 +89,21 @@ jobs:
         shell: pwsh
         run: |
           $artifact = "gpd-win-controls-access-${{ steps.meta.outputs.tag }}.zip"
-          New-Item -Path dist -ItemType Directory -Force | Out-Null
-          Copy-Item -Path GpdControl.exe, GpdGui.exe, default_mappings.txt, readme.md -Destination dist
-          Compress-Archive -Path dist\* -DestinationPath $artifact -Force
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          if (Test-Path $artifact) {
+            Remove-Item -Path $artifact -Force
+          }
+
+          $archive = [System.IO.Compression.ZipFile]::Open($artifact, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, "GpdControl.exe", "GpdControl.exe") | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, "GpdGui.exe", "GpdGui.exe") | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, "default_mappings.txt", "default_mappings.txt") | Out-Null
+            $archive.CreateEntry("profiles/") | Out-Null
+          } finally {
+            $archive.Dispose()
+          }
+
           "artifact=$artifact" >> $env:GITHUB_OUTPUT
 
       - name: Create GitHub release
@@ -102,3 +114,4 @@ jobs:
           name: ${{ steps.meta.outputs.name }}
           generate_release_notes: true
           files: ${{ steps.package.outputs.artifact }}
+          make_latest: true

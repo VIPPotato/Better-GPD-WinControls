@@ -1,0 +1,81 @@
+name: Release Assets
+
+on:
+  release:
+    types: [published]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Release tag to build and upload (example: v2.0)
+        required: true
+        type: string
+
+permissions:
+  contents: write
+
+jobs:
+  build-and-upload:
+    runs-on: windows-latest
+
+    steps:
+      - name: Resolve release tag
+        id: target
+        shell: pwsh
+        run: |
+          if ("${{ github.event_name }}" -eq "release") {
+            $tag = "${{ github.event.release.tag_name }}"
+          } else {
+            $tag = "${{ inputs.tag }}"
+          }
+
+          if ([string]::IsNullOrWhiteSpace($tag)) {
+            throw "No release tag was provided."
+          }
+
+          "tag=$tag" >> $env:GITHUB_OUTPUT
+          "artifact=gpd-win-controls-access-$tag.zip" >> $env:GITHUB_OUTPUT
+
+      - name: Checkout release tag
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.target.outputs.tag }}
+          fetch-depth: 0
+
+      - name: Build binaries
+        shell: pwsh
+        run: |
+          $ErrorActionPreference = "Stop"
+          $csc = "$env:windir\Microsoft.NET\Framework64\v4.0.30319\csc.exe"
+          if (-not (Test-Path $csc)) {
+            throw "csc.exe not found at: $csc"
+          }
+
+          & $csc /target:exe /out:GpdControl.exe GpdControl.cs
+          & $csc /target:winexe /out:GpdGui.exe /main:GpdGui.Program GpdGui.cs GpdControl.cs
+
+      - name: Package release zip
+        shell: pwsh
+        run: |
+          $artifact = "${{ steps.target.outputs.artifact }}"
+          Add-Type -AssemblyName System.IO.Compression.FileSystem
+          if (Test-Path $artifact) {
+            Remove-Item -Path $artifact -Force
+          }
+
+          $archive = [System.IO.Compression.ZipFile]::Open($artifact, [System.IO.Compression.ZipArchiveMode]::Create)
+          try {
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, "GpdControl.exe", "GpdControl.exe") | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, "GpdGui.exe", "GpdGui.exe") | Out-Null
+            [System.IO.Compression.ZipFileExtensions]::CreateEntryFromFile($archive, "default_mappings.txt", "default_mappings.txt") | Out-Null
+            $archive.CreateEntry("profiles/") | Out-Null
+          } finally {
+            $archive.Dispose()
+          }
+
+      - name: Upload zip to release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ steps.target.outputs.tag }}
+          files: ${{ steps.target.outputs.artifact }}
+          overwrite_files: true
+          make_latest: true
