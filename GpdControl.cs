@@ -420,8 +420,7 @@ namespace GpdControl
             {"LEFTCTRL", 0xe0}, {"LEFTSHIFT", 0xe1}, {"LEFTALT", 0xe2}, {"LEFTMETA", 0xe3}, {"LWIN", 0xe3},
             {"RIGHTCTRL", 0xe4}, {"RIGHTSHIFT", 0xe5}, {"RIGHTALT", 0xe6}, {"RIGHTMETA", 0xe7}, {"RWIN", 0xe7},
             {"MOUSE_WHEELUP", 0xe8}, {"MOUSE_WHEELDOWN", 0xe9}, {"MOUSE_LEFT", 0xea},
-            {"MOUSE_RIGHT", 0xeb}, {"MOUSE_MIDDLE", 0xec}, {"MOUSE_FAST", 0xed},
-            {"PRINTSCREEN", 0x46}
+            {"MOUSE_RIGHT", 0xeb}, {"MOUSE_MIDDLE", 0xec}, {"MOUSE_FAST", 0xed}
         };
 
         public static string GetName(byte code)
@@ -520,6 +519,7 @@ namespace GpdControl
                 case "Key":
                     byte code;
                     string normalized = value.Trim().ToUpperInvariant();
+                    if (normalized == "PRINTSCREEN") normalized = "SYSRQ";
                     if (normalized.StartsWith("0X"))
                     {
                         if (!byte.TryParse(normalized.Substring(2), System.Globalization.NumberStyles.HexNumber, System.Globalization.CultureInfo.InvariantCulture, out code))

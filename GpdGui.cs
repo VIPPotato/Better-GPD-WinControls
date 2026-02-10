@@ -829,7 +829,7 @@ namespace GpdGui
                 case Keys.LWin: return "LWIN";
                 case Keys.RWin: return "RWIN";
                 case Keys.Apps: return "APPLICATIONS";
-                case Keys.PrintScreen: return "PRINTSCREEN";
+                case Keys.PrintScreen: return "SYSRQ";
                 case Keys.VolumeUp: return "VOLUP";
                 case Keys.VolumeDown: return "VOLDN";
                 case Keys.VolumeMute: return "MUTE";
