@@ -107,6 +107,10 @@ namespace GpdControl
         private SafeFileHandle _handle;
         private const ushort VID = 0x2f24;
         private const ushort USAGE_PAGE = 0xff00;
+        private readonly byte[] _requestBuffer = new byte[33];
+        private readonly byte[] _outputReport0Buffer = new byte[34];
+        private readonly byte[] _responseBuffer = new byte[65];
+        private readonly byte[] _writePayloadBuffer = new byte[16];
 
         public void Open()
         {
@@ -212,39 +216,38 @@ namespace GpdControl
 
         private byte[] SendReqInternal(byte id, byte minorSerial, byte[] data = null)
         {
-            byte[] buffer = new byte[33];
-            buffer[0] = 0x01; // ID
-            buffer[1] = 0xa5;
-            buffer[2] = id;
-            buffer[3] = 0x5a;
-            buffer[4] = (byte)(id ^ 0xFF);
-            buffer[5] = 0x00; // Reserved / Padding
-            buffer[6] = minorSerial; // Index Low
-            buffer[7] = 0x00; // Index High
-            if (data != null) Array.Copy(data, 0, buffer, 8, Math.Min(data.Length, 25));
+            Array.Clear(_requestBuffer, 0, _requestBuffer.Length);
+            _requestBuffer[0] = 0x01; // ID
+            _requestBuffer[1] = 0xa5;
+            _requestBuffer[2] = id;
+            _requestBuffer[3] = 0x5a;
+            _requestBuffer[4] = (byte)(id ^ 0xFF);
+            _requestBuffer[5] = 0x00; // Reserved / Padding
+            _requestBuffer[6] = minorSerial; // Index Low
+            _requestBuffer[7] = 0x00; // Index High
+            if (data != null) Buffer.BlockCopy(data, 0, _requestBuffer, 8, Math.Min(data.Length, 25));
 
             bool writeSuccess = false;
-            
+             
             // Method 1: Feature ID 1 (PRIORITY for Config Write)
-            if (NativeMethods.HidD_SetFeature(_handle, buffer, buffer.Length))
+            if (NativeMethods.HidD_SetFeature(_handle, _requestBuffer, _requestBuffer.Length))
             {
                 writeSuccess = true;
             }
             else
             {
                 // Fallback: Output ID 1
-                if (NativeMethods.HidD_SetOutputReport(_handle, buffer, buffer.Length)) 
+                if (NativeMethods.HidD_SetOutputReport(_handle, _requestBuffer, _requestBuffer.Length)) 
                 {
                     writeSuccess = true;
                 }
                 else
                 {
                     // Fallback: Output ID 0 (Shifted Payload)
-                    byte[] buffer0 = new byte[34];
-                    buffer0[0] = 0x00; // Dummy
-                    Array.Copy(buffer, 0, buffer0, 1, 33);
-                    
-                    if (NativeMethods.HidD_SetOutputReport(_handle, buffer0, buffer0.Length))
+                    _outputReport0Buffer[0] = 0x00; // Dummy
+                    Buffer.BlockCopy(_requestBuffer, 0, _outputReport0Buffer, 1, 33);
+                     
+                    if (NativeMethods.HidD_SetOutputReport(_handle, _outputReport0Buffer, _outputReport0Buffer.Length))
                     {
                         writeSuccess = true;
                     }
@@ -258,22 +261,22 @@ namespace GpdControl
             // Wait for device to generate NEW report
             // Reduced from 100ms to 20ms to avoid timeout but allow processing
             System.Threading.Thread.Sleep(20); 
-            
+             
             // Read Response
-            byte[] readBuffer = new byte[65];
-            readBuffer[0] = 0x01;
-            
-            if (NativeMethods.HidD_GetInputReport(_handle, readBuffer, readBuffer.Length))
+            Array.Clear(_responseBuffer, 0, _responseBuffer.Length);
+            _responseBuffer[0] = 0x01;
+             
+            if (NativeMethods.HidD_GetInputReport(_handle, _responseBuffer, _responseBuffer.Length))
             {
-                return readBuffer;
+                return (byte[])_responseBuffer.Clone();
             }
 
             // Fallback for devices/firmware that only expose this data through feature reports.
-            if (NativeMethods.HidD_GetFeature(_handle, readBuffer, readBuffer.Length))
+            if (NativeMethods.HidD_GetFeature(_handle, _responseBuffer, _responseBuffer.Length))
             {
-                return readBuffer;
+                return (byte[])_responseBuffer.Clone();
             }
-            
+             
             throw new Exception("Failed to read response.");
         }
         
@@ -298,25 +301,14 @@ namespace GpdControl
             // Console.WriteLine("DEBUG LOAD2: " + BitConverter.ToString(load2_raw));
             // Console.WriteLine("DEBUG LOAD3: " + BitConverter.ToString(load3_raw));
 
-            List<byte> configData = new List<byte>();
-            
+            byte[] configData = new byte[256];
+             
             // Extract the 64 byte payload from each response
             // DEBUG logs show data starts at index 0 (e.g. E8 00 ...), so no Report ID offset is needed.
-            byte[] chunk0 = new byte[64];
-            Array.Copy(load0_raw, 0, chunk0, 0, 64);
-            configData.AddRange(chunk0);
-
-            byte[] chunk1 = new byte[64];
-            Array.Copy(load1_raw, 0, chunk1, 0, 64);
-            configData.AddRange(chunk1);
-
-            byte[] chunk2 = new byte[64];
-            Array.Copy(load2_raw, 0, chunk2, 0, 64);
-            configData.AddRange(chunk2);
-
-            byte[] chunk3 = new byte[64];
-            Array.Copy(load3_raw, 0, chunk3, 0, 64);
-            configData.AddRange(chunk3);
+            Buffer.BlockCopy(load0_raw, 0, configData, 0, 64);
+            Buffer.BlockCopy(load1_raw, 0, configData, 64, 64);
+            Buffer.BlockCopy(load2_raw, 0, configData, 128, 64);
+            Buffer.BlockCopy(load3_raw, 0, configData, 192, 64);
 
             byte[] checkResponse = SendReq(0x12, 0x00, null); // Checksum command is Minor 0
 
@@ -329,14 +321,18 @@ namespace GpdControl
             FirmwareVersion = string.Format("X{0:x}{1:02x} K{2:x}{3:02x}", xMaj, xMin, kMaj, kMin);
 
             uint checksum = BitConverter.ToUInt32(checkResponse, 24);
-            uint calculatedChecksum = (uint)configData.Sum(b => (long)b);
+            uint calculatedChecksum = 0;
+            for (int i = 0; i < configData.Length; i++)
+            {
+                calculatedChecksum += configData[i];
+            }
 
             if (checksum != calculatedChecksum)
             {
                 throw new Exception(string.Format("Checksum mismatch while reading. Device: {0}, Calc: {1}", checksum, calculatedChecksum));
             }
 
-            return configData.ToArray();
+            return configData;
         }
 
         public void WriteConfig(byte[] config)
@@ -349,16 +345,19 @@ namespace GpdControl
             // In this implementation, the block index is sent in the request index byte (minorSerial).
             for (int block = 0; block < 8; block++)
             {
-                byte[] payload = new byte[16];
-                Array.Copy(config, block * 16, payload, 0, 16);
-                SendReq(0x21, (byte)block, payload);
+                Buffer.BlockCopy(config, block * 16, _writePayloadBuffer, 0, 16);
+                SendReq(0x21, (byte)block, _writePayloadBuffer);
             }
 
             byte[] response = SendReq(0x22, 0x00, null); // Checksum. Minor 0
 
             uint checksum = BitConverter.ToUInt32(response, 24);
-            uint calculatedChecksum = (uint)config.Sum(b => (long)b);
-            
+            uint calculatedChecksum = 0;
+            for (int i = 0; i < config.Length; i++)
+            {
+                calculatedChecksum += config[i];
+            }
+             
             if (checksum == calculatedChecksum)
             {
                 SendReq(0x23, 0x00, null); // Commit. Minor 0
@@ -375,12 +374,18 @@ namespace GpdControl
         {
             byte[] response = null;
             int safeguard = 0;
-            do
+            while (true)
             {
                 response = SendReq(id, 0x00, null); // Minor 0 for WaitReady?
+                if (response != null && response[8] == 0xaa)
+                {
+                    return;
+                }
+
                 safeguard++;
                 if (safeguard > 100) throw new Exception("WaitReady timed out.");
-            } while (response == null || response[8] != 0xaa);
+                System.Threading.Thread.Sleep(5);
+            }
         }
     }
 
