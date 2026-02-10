@@ -426,11 +426,27 @@ namespace GpdControl
             {"MOUSE_RIGHT", 0xeb}, {"MOUSE_MIDDLE", 0xec}, {"MOUSE_FAST", 0xed}
         };
 
+        private static readonly Dictionary<byte, string> ReverseMap = BuildReverseMap();
+
+        private static Dictionary<byte, string> BuildReverseMap()
+        {
+            Dictionary<byte, string> reverse = new Dictionary<byte, string>();
+            foreach (KeyValuePair<string, byte> kvp in Map)
+            {
+                if (!reverse.ContainsKey(kvp.Value))
+                {
+                    reverse[kvp.Value] = kvp.Key;
+                }
+            }
+            return reverse;
+        }
+
         public static string GetName(byte code)
         {
-            foreach (var kvp in Map)
+            string name;
+            if (ReverseMap.TryGetValue(code, out name))
             {
-                if (kvp.Value == code) return kvp.Key;
+                return name;
             }
             return string.Format("0x{0:X2}", code);
         }
