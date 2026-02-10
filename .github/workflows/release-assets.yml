@@ -2,7 +2,9 @@ name: Release Assets
 
 on:
   release:
-    types: [published, edited]
+    types:
+      - published
+      - edited
 
 permissions:
   contents: write
