@@ -608,25 +608,28 @@ namespace GpdControl
 
         public static void LoadFromProfile(Config config, string[] lines)
         {
-            foreach (string line in lines)
+            for (int i = 0; i < lines.Length; i++)
             {
+                string line = lines[i];
                 if (string.IsNullOrWhiteSpace(line) || line.Trim().StartsWith("#")) continue;
                 string[] parts = line.Split(new char[] { '=' }, 2);
-                if (parts.Length == 2)
+                if (parts.Length != 2)
                 {
-                    string key = parts[0].Trim();
-                    string val = parts[1].Trim();
-                    int parenIdx = val.IndexOf('(');
-                    if (parenIdx > 0) val = val.Substring(0, parenIdx).Trim();
-                    
-                    try 
-                    { 
-                        config.Set(key, val); 
-                    }
-                    catch 
-                    { 
-                        // Silently ignore invalid lines
-                    }
+                    throw new Exception(string.Format("Invalid config line {0}: {1}", i + 1, line));
+                }
+
+                string key = parts[0].Trim();
+                string val = parts[1].Trim();
+                int parenIdx = val.IndexOf('(');
+                if (parenIdx > 0) val = val.Substring(0, parenIdx).Trim();
+
+                try
+                {
+                    config.Set(key, val);
+                }
+                catch (Exception ex)
+                {
+                    throw new Exception(string.Format("Invalid config line {0}: {1} ({2})", i + 1, line, ex.Message));
                 }
             }
         }
