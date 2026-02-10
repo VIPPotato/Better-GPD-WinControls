@@ -840,6 +840,7 @@ namespace GpdControl
             catch (Exception ex)
             {
                 Console.WriteLine(string.Format("Error: {0}", ex.Message));
+                Environment.ExitCode = 1;
             }
         }
     }
