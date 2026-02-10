@@ -336,7 +336,7 @@ namespace GpdControl
 
             if (checksum != calculatedChecksum)
             {
-                Console.WriteLine(string.Format("Warning: Checksum mismatch! Device: {0}, Calc: {1}", checksum, calculatedChecksum));
+                throw new Exception(string.Format("Checksum mismatch while reading. Device: {0}, Calc: {1}", checksum, calculatedChecksum));
             }
 
             return configData.ToArray();
