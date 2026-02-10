@@ -18,6 +18,7 @@ namespace GpdGui
         private Button applyButton;
         private Button reloadButton;
         private Button checkUpdatesButton;
+        private Button accessibilityButton;
         private Label statusLabel;
         private Config currentConfig;
         private GpdDevice device;
@@ -117,6 +118,11 @@ namespace GpdGui
             restoreButton.AutoSize = true;
             restoreButton.Click += RestoreButton_Click;
 
+            accessibilityButton = new Button();
+            accessibilityButton.Text = "Accessibility: Off";
+            accessibilityButton.AutoSize = true;
+            accessibilityButton.Click += AccessibilityButton_Click;
+
             Button aboutButton = new Button();
             aboutButton.Text = "About";
             aboutButton.AutoSize = true;
@@ -130,6 +136,7 @@ namespace GpdGui
             footerPanel.Controls.Add(checkUpdatesButton);
             footerPanel.Controls.Add(backupButton);
             footerPanel.Controls.Add(restoreButton);
+            footerPanel.Controls.Add(accessibilityButton);
             footerPanel.Controls.Add(aboutButton);
             footerPanel.Controls.Add(exitButton);
             mainLayout.Controls.Add(footerPanel, 0, 2);
@@ -166,6 +173,7 @@ namespace GpdGui
         // For settings tab controls
         private Dictionary<string, Control> settingControls = new Dictionary<string, Control>();
         private bool _suppressComboEvents;
+        private bool _accessibilityMode;
 
         private void SetConnectedState(bool connected)
         {
@@ -255,6 +263,69 @@ namespace GpdGui
             CheckForUpdates(true);
         }
 
+        private void AccessibilityButton_Click(object sender, EventArgs e)
+        {
+            SetAccessibilityMode(!_accessibilityMode);
+        }
+
+        private void SetAccessibilityMode(bool enabled)
+        {
+            _accessibilityMode = enabled;
+            if (accessibilityButton != null)
+            {
+                accessibilityButton.Text = enabled ? "Accessibility: On" : "Accessibility: Off";
+            }
+
+            float size = enabled ? 11.0f : 8.25f;
+            ApplyFontRecursive(this, size);
+
+            if (enabled)
+            {
+                this.Size = new Size(820, 620);
+                statusLabel.Text = "Accessibility mode enabled.";
+            }
+            else
+            {
+                this.Size = new Size(600, 500);
+                statusLabel.Text = "Accessibility mode disabled.";
+            }
+
+            GuiLogger.Log("Accessibility mode set to " + enabled);
+        }
+
+        private void ApplyFontRecursive(Control root, float size)
+        {
+            if (root == null) return;
+            try
+            {
+                root.Font = new Font(root.Font.FontFamily, size, root.Font.Style);
+            }
+            catch
+            {
+            }
+
+            foreach (Control child in root.Controls)
+            {
+                ApplyFontRecursive(child, size);
+            }
+        }
+
+        private void ShowInfo(string message, string statusText)
+        {
+            if (!string.IsNullOrWhiteSpace(statusText))
+            {
+                statusLabel.Text = statusText;
+            }
+
+            if (_accessibilityMode)
+            {
+                GuiLogger.Log("Info: " + message);
+                return;
+            }
+
+            MessageBox.Show(message);
+        }
+
         private void BackupButton_Click(object sender, EventArgs e)
         {
             if (!EnsureConnectedAndLoaded()) return;
@@ -270,7 +341,7 @@ namespace GpdGui
                 File.WriteAllBytes(sfd.FileName, data);
                 statusLabel.Text = "Backup saved: " + Path.GetFileName(sfd.FileName);
                 GuiLogger.Log("Backup saved to " + sfd.FileName);
-                MessageBox.Show("Backup saved.");
+                ShowInfo("Backup saved.", "Backup saved: " + Path.GetFileName(sfd.FileName));
             }
             catch (Exception ex)
             {
@@ -308,7 +379,7 @@ namespace GpdGui
                 RefreshList();
                 statusLabel.Text = "Restore completed.";
                 GuiLogger.Log("Restore completed from " + ofd.FileName);
-                MessageBox.Show("Restore completed.");
+                ShowInfo("Restore completed.", "Restore completed.");
             }
             catch (Exception ex)
             {
@@ -392,7 +463,7 @@ namespace GpdGui
                         GuiLogger.Log("No update found. Current=" + CurrentAppVersion + " Latest=" + latestTag);
                         if (manual)
                         {
-                            MessageBox.Show("You are up to date (" + CurrentAppVersion + ").");
+                            ShowInfo("You are up to date (" + CurrentAppVersion + ").", "You are up to date.");
                         }
                     }
                 };
@@ -783,7 +854,7 @@ namespace GpdGui
                     System.IO.File.WriteAllText(path, currentConfig.ToProfileString());
                     RefreshProfilesList();
                     GuiLogger.Log("Profile created: " + name);
-                    MessageBox.Show("Profile created.");
+                    ShowInfo("Profile created.", "Profile created.");
                 }
                 catch (Exception ex) { MessageBox.Show("Error creating profile: " + ex.Message); GuiLogger.LogException("Create profile failed", ex); }
             }
@@ -830,7 +901,7 @@ namespace GpdGui
                 RefreshList(); // Update GUI elements
                 statusLabel.Text = "Loaded profile '" + name + "' into GUI (not device).";
                 GuiLogger.Log("Profile loaded into GUI state: " + name);
-                MessageBox.Show("Profile loaded into GUI. Click 'Apply Changes' to write to device.");
+                ShowInfo("Profile loaded into GUI. Click 'Apply Changes' to write to device.", "Profile loaded into GUI.");
             }
             catch (Exception ex) { MessageBox.Show("Error loading: " + ex.Message); GuiLogger.LogException("Edit/load profile failed", ex); }
         }
@@ -923,7 +994,7 @@ namespace GpdGui
                     device.WriteConfig(currentConfig.Raw);
                     statusLabel.Text = "Profile '" + name + "' written to device.";
                     GuiLogger.Log("Profile written to device: " + name);
-                    MessageBox.Show("Profile written successfully!");
+                    ShowInfo("Profile written successfully!", "Profile written to device.");
                 }
                 catch (Exception ex) { MessageBox.Show("Error writing: " + ex.Message); GuiLogger.LogException("Load profile write failed", ex); }
             }
@@ -957,7 +1028,7 @@ namespace GpdGui
                 System.IO.File.WriteAllText(path, currentConfig.ToProfileString());
                 statusLabel.Text = "Profile '" + name + "' saved from GUI state.";
                 GuiLogger.Log("Profile saved from GUI state: " + name);
-                MessageBox.Show("Profile saved.");
+                ShowInfo("Profile saved.", "Profile saved.");
             }
             catch (Exception ex)
             {
@@ -1212,7 +1283,7 @@ namespace GpdGui
                 device.WriteConfig(currentConfig.Raw);
                 statusLabel.Text = "Saved successfully.";
                 GuiLogger.Log("Configuration written to device.");
-                MessageBox.Show("Configuration saved to device!");
+                ShowInfo("Configuration saved to device!", "Configuration saved.");
             }
             catch (Exception ex)
             {
@@ -1243,7 +1314,7 @@ namespace GpdGui
                     RefreshList();
                     statusLabel.Text = "Defaults restored and written to device.";
                     GuiLogger.Log("Defaults restored and written.");
-                    MessageBox.Show("Defaults restored successfully.");
+                    ShowInfo("Defaults restored successfully.", "Defaults restored.");
                 }
                 catch (Exception ex)
                 {
