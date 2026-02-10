@@ -258,11 +258,7 @@ namespace GpdGui
                         {
                             btn.BackColor = cd.Color;
                             // Store value?
-                            currentConfig.Set(def.Name, string.Format("{0:X2}{1:X2}{2:X2}", cd.Color.B, cd.Color.G, cd.Color.R)); // RGB or BGR?
-                            // Config GetValue uses R+2, R+1, R. (BGR in memory?)
-                            // raw[offset]=B, raw+1=G, raw+2=R.
-                            // Set expects RRGGBB string.
-                            // Let's fix Set logic later if needed.
+                            currentConfig.Set(def.Name, string.Format("{0:X2}{1:X2}{2:X2}", cd.Color.R, cd.Color.G, cd.Color.B));
                         }
                     };
                     inputCtrl = btn;
