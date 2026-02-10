@@ -21,6 +21,7 @@ namespace GpdGui
         private Button accessibilityButton;
         private CheckBox safeApplyCheckBox;
         private Label statusLabel;
+        private TabControl mainTabControl;
         private Config currentConfig;
         private GpdDevice device;
         private const string CurrentAppVersion = "1.0.0";
@@ -73,28 +74,28 @@ namespace GpdGui
             mainLayout.Controls.Add(buttonPanel, 0, 0);
 
             // Content Tabs
-            TabControl tabControl = new TabControl();
-            tabControl.Dock = DockStyle.Fill;
-            mainLayout.Controls.Add(tabControl, 0, 1);
+            mainTabControl = new TabControl();
+            mainTabControl.Dock = DockStyle.Fill;
+            mainLayout.Controls.Add(mainTabControl, 0, 1);
 
             // 1. Buttons Tab
             TabPage buttonsTab = new TabPage("Buttons");
-            tabControl.TabPages.Add(buttonsTab);
+            mainTabControl.TabPages.Add(buttonsTab);
             CreateListTab(buttonsTab, "Key");
 
             // 2. Macros Tab
             TabPage macrosTab = new TabPage("Macros");
-            tabControl.TabPages.Add(macrosTab);
+            mainTabControl.TabPages.Add(macrosTab);
             CreateListTab(macrosTab, "Macro");
 
             // 3. Settings Tab
             TabPage settingsTab = new TabPage("Settings");
-            tabControl.TabPages.Add(settingsTab);
+            mainTabControl.TabPages.Add(settingsTab);
             CreateSettingsTab(settingsTab);
 
             // 4. Profiles Tab
             TabPage profilesTab = new TabPage("Profiles");
-            tabControl.TabPages.Add(profilesTab);
+            mainTabControl.TabPages.Add(profilesTab);
             CreateProfilesTab(profilesTab);
 
             // Status
@@ -157,23 +158,37 @@ namespace GpdGui
             this.Shown += (s, e) => 
             {
                 Application.DoEvents();
-                try
+                GpdDevice openedDevice = null;
+                Config loadedConfig = null;
+
+                RunBackgroundAction("Connecting to device...", delegate
                 {
-                    device = new GpdDevice();
-                    device.Open();
-                    LoadConfig();
-                }
-                catch (Exception ex)
+                    openedDevice = new GpdDevice();
+                    openedDevice.Open();
+                    byte[] data = openedDevice.ReadConfig();
+                    loadedConfig = new Config(data);
+                },
+                delegate
                 {
+                    device = openedDevice;
+                    currentConfig = loadedConfig;
+                    RefreshList();
+                    statusLabel.Text = string.Format("Configuration loaded. Firmware: {0}", device.FirmwareVersion);
+                    SetConnectedState(true);
+                    CheckForUpdates(false);
+                },
+                delegate(Exception ex)
+                {
+                    if (openedDevice != null) openedDevice.Dispose();
+
                     MessageBox.Show("Could not connect to device: " + ex.Message);
                     statusLabel.Text = "Disconnected.";
                     currentConfig = null;
                     device = null;
                     SetConnectedState(false);
                     GuiLogger.LogException("Initial device connection failed", ex);
-                }
-
-                CheckForUpdates(false);
+                    CheckForUpdates(false);
+                });
             };
 
             SetConnectedState(false);
@@ -187,14 +202,114 @@ namespace GpdGui
         private Dictionary<string, Control> settingControls = new Dictionary<string, Control>();
         private bool _suppressComboEvents;
         private bool _accessibilityMode;
+        private bool _isBusy;
 
         private void SetConnectedState(bool connected)
         {
-            applyButton.Enabled = connected;
+            applyButton.Enabled = connected && !_isBusy;
+        }
+
+        private bool TryBeginBusy(string statusText)
+        {
+            if (_isBusy)
+            {
+                statusLabel.Text = "Please wait for the current operation to finish.";
+                return false;
+            }
+
+            _isBusy = true;
+            UseWaitCursor = true;
+            if (!string.IsNullOrWhiteSpace(statusText))
+            {
+                statusLabel.Text = statusText;
+            }
+
+            if (mainTabControl != null) mainTabControl.Enabled = false;
+            if (reloadButton != null) reloadButton.Enabled = false;
+            if (safeApplyCheckBox != null) safeApplyCheckBox.Enabled = false;
+            if (checkUpdatesButton != null) checkUpdatesButton.Enabled = false;
+            applyButton.Enabled = false;
+            return true;
+        }
+
+        private void EndBusy(string statusText)
+        {
+            _isBusy = false;
+            UseWaitCursor = false;
+
+            if (!string.IsNullOrWhiteSpace(statusText))
+            {
+                statusLabel.Text = statusText;
+            }
+
+            if (mainTabControl != null) mainTabControl.Enabled = true;
+            if (reloadButton != null) reloadButton.Enabled = true;
+            if (safeApplyCheckBox != null) safeApplyCheckBox.Enabled = true;
+            if (checkUpdatesButton != null) checkUpdatesButton.Enabled = true;
+            SetConnectedState(device != null && currentConfig != null);
+        }
+
+        private void RunBackgroundAction(string startStatus, Action worker, Action onSuccess, Action<Exception> onError)
+        {
+            if (!TryBeginBusy(startStatus)) return;
+
+            ThreadPool.QueueUserWorkItem(delegate
+            {
+                Exception workerError = null;
+                try
+                {
+                    worker();
+                }
+                catch (Exception ex)
+                {
+                    workerError = ex;
+                }
+
+                Action complete = delegate
+                {
+                    try
+                    {
+                        if (workerError == null)
+                        {
+                            if (onSuccess != null) onSuccess();
+                        }
+                        else
+                        {
+                            if (onError != null) onError(workerError);
+                        }
+                    }
+                    finally
+                    {
+                        EndBusy(null);
+                    }
+                };
+
+                try
+                {
+                    if (IsHandleCreated && !IsDisposed)
+                    {
+                        BeginInvoke(complete);
+                    }
+                    else
+                    {
+                        _isBusy = false;
+                    }
+                }
+                catch
+                {
+                    _isBusy = false;
+                }
+            });
         }
 
         private bool EnsureConnectedAndLoaded()
         {
+            if (_isBusy)
+            {
+                statusLabel.Text = "Please wait for the current operation to finish.";
+                return false;
+            }
+
             if (device == null)
             {
                 try
@@ -273,6 +388,7 @@ namespace GpdGui
 
         private void CheckUpdatesButton_Click(object sender, EventArgs e)
         {
+            if (_isBusy) return;
             CheckForUpdates(true);
         }
 
@@ -347,21 +463,25 @@ namespace GpdGui
             sfd.Filter = "Binary Files (*.bin)|*.bin|All Files (*.*)|*.*";
             sfd.FileName = "gpd-config-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".bin";
             if (sfd.ShowDialog() != DialogResult.OK) return;
+            string backupPath = sfd.FileName;
 
-            try
+            RunBackgroundAction("Backing up config...", delegate
             {
                 byte[] data = device.ReadConfig();
-                File.WriteAllBytes(sfd.FileName, data);
-                statusLabel.Text = "Backup saved: " + Path.GetFileName(sfd.FileName);
-                GuiLogger.Log("Backup saved to " + sfd.FileName);
-                ShowInfo("Backup saved.", "Backup saved: " + Path.GetFileName(sfd.FileName));
-            }
-            catch (Exception ex)
+                File.WriteAllBytes(backupPath, data);
+            },
+            delegate
+            {
+                statusLabel.Text = "Backup saved: " + Path.GetFileName(backupPath);
+                GuiLogger.Log("Backup saved to " + backupPath);
+                ShowInfo("Backup saved.", "Backup saved: " + Path.GetFileName(backupPath));
+            },
+            delegate(Exception ex)
             {
                 MessageBox.Show("Backup failed: " + ex.Message);
                 statusLabel.Text = "Backup failed.";
                 GuiLogger.LogException("Backup failed", ex);
-            }
+            });
         }
 
         private void RestoreButton_Click(object sender, EventArgs e)
@@ -371,35 +491,52 @@ namespace GpdGui
             OpenFileDialog ofd = new OpenFileDialog();
             ofd.Filter = "Binary Files (*.bin)|*.bin|All Files (*.*)|*.*";
             if (ofd.ShowDialog() != DialogResult.OK) return;
-
+            string restorePath = ofd.FileName;
+            byte[] raw;
             try
             {
-                byte[] raw = File.ReadAllBytes(ofd.FileName);
-                if (raw.Length != 256)
-                {
-                    MessageBox.Show("Invalid backup size. Expected 256 bytes.");
-                    statusLabel.Text = "Restore failed.";
-                    return;
-                }
-
-                if (MessageBox.Show("Restore this backup to device firmware?", "Confirm Restore", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
-                {
-                    return;
-                }
-
-                device.WriteConfig(raw);
-                currentConfig = new Config((byte[])raw.Clone());
-                RefreshList();
-                statusLabel.Text = "Restore completed.";
-                GuiLogger.Log("Restore completed from " + ofd.FileName);
-                ShowInfo("Restore completed.", "Restore completed.");
+                raw = File.ReadAllBytes(restorePath);
             }
             catch (Exception ex)
             {
                 MessageBox.Show("Restore failed: " + ex.Message);
                 statusLabel.Text = "Restore failed.";
-                GuiLogger.LogException("Restore failed", ex);
+                GuiLogger.LogException("Restore read failed", ex);
+                return;
             }
+
+            if (raw.Length != 256)
+            {
+                MessageBox.Show("Invalid backup size. Expected 256 bytes.");
+                statusLabel.Text = "Restore failed.";
+                return;
+            }
+
+            if (MessageBox.Show("Restore this backup to device firmware?", "Confirm Restore", MessageBoxButtons.YesNo, MessageBoxIcon.Warning) != DialogResult.Yes)
+            {
+                return;
+            }
+
+            Config restoredConfig = null;
+            RunBackgroundAction("Restoring backup...", delegate
+            {
+                device.WriteConfig(raw);
+                restoredConfig = new Config((byte[])raw.Clone());
+            },
+            delegate
+            {
+                currentConfig = restoredConfig;
+                RefreshList();
+                statusLabel.Text = "Restore completed.";
+                GuiLogger.Log("Restore completed from " + restorePath);
+                ShowInfo("Restore completed.", "Restore completed.");
+            },
+            delegate(Exception ex)
+            {
+                MessageBox.Show("Restore failed: " + ex.Message);
+                statusLabel.Text = "Restore failed.";
+                GuiLogger.LogException("Restore failed", ex);
+            });
         }
 
         private void DataFolderButton_Click(object sender, EventArgs e)
@@ -451,7 +588,7 @@ namespace GpdGui
 
                 Action complete = delegate
                 {
-                    if (checkUpdatesButton != null) checkUpdatesButton.Enabled = true;
+                    if (checkUpdatesButton != null) checkUpdatesButton.Enabled = !_isBusy;
 
                     if (!success)
                     {
@@ -1015,18 +1152,28 @@ namespace GpdGui
                     MessageBox.Show(err);
                     return;
                 }
-                try
+                Config loadedProfileConfig = null;
+                RunBackgroundAction("Writing profile to device...", delegate
                 {
-                    // Load to temp config or current? Current is fine as we are applying it.
                     string[] lines = System.IO.File.ReadAllLines(path);
-                    Config.LoadFromProfile(currentConfig, lines);
-                    RefreshList(); // Sync GUI
-                    device.WriteConfig(currentConfig.Raw);
+                    Config nextConfig = new Config((byte[])currentConfig.Raw.Clone());
+                    Config.LoadFromProfile(nextConfig, lines);
+                    device.WriteConfig(nextConfig.Raw);
+                    loadedProfileConfig = nextConfig;
+                },
+                delegate
+                {
+                    currentConfig = loadedProfileConfig;
+                    RefreshList();
                     statusLabel.Text = "Profile '" + name + "' written to device.";
                     GuiLogger.Log("Profile written to device: " + name);
                     ShowInfo("Profile written successfully!", "Profile written to device.");
-                }
-                catch (Exception ex) { MessageBox.Show("Error writing: " + ex.Message); GuiLogger.LogException("Load profile write failed", ex); }
+                },
+                delegate(Exception ex)
+                {
+                    MessageBox.Show("Error writing: " + ex.Message);
+                    GuiLogger.LogException("Load profile write failed", ex);
+                });
             }
         }
 
@@ -1297,13 +1444,14 @@ namespace GpdGui
             }
         }
 
-        private bool VerifyAppliedConfiguration(Config expectedConfig, out string report)
+        private bool VerifyAppliedConfiguration(Config expectedConfig, out string report, out Config actualConfig)
         {
             report = string.Empty;
+            actualConfig = null;
             try
             {
                 byte[] verifyRaw = device.ReadConfig();
-                Config actualConfig = new Config(verifyRaw);
+                actualConfig = new Config(verifyRaw);
 
                 List<string> mismatches = new List<string>();
                 foreach (Config.FieldDef def in Config.Fields)
@@ -1318,8 +1466,6 @@ namespace GpdGui
 
                 if (mismatches.Count == 0)
                 {
-                    currentConfig = actualConfig;
-                    RefreshList();
                     return true;
                 }
 
@@ -1353,37 +1499,59 @@ namespace GpdGui
                 return;
             }
 
-            try
-            {
-                statusLabel.Text = "Writing to device...";
-                Application.DoEvents();
-                device.WriteConfig(currentConfig.Raw);
+            bool verifyEnabled = safeApplyCheckBox != null && safeApplyCheckBox.Checked;
+            Config expectedConfig = new Config((byte[])currentConfig.Raw.Clone());
+            Config verifiedConfig = null;
+            string verifyFailure = null;
 
-                if (safeApplyCheckBox != null && safeApplyCheckBox.Checked)
+            RunBackgroundAction("Writing to device...", delegate
+            {
+                device.WriteConfig(expectedConfig.Raw);
+                if (verifyEnabled)
                 {
-                    statusLabel.Text = "Verifying write...";
-                    Application.DoEvents();
                     string verifyReport;
-                    if (!VerifyAppliedConfiguration(currentConfig, out verifyReport))
+                    Config actualConfig;
+                    if (!VerifyAppliedConfiguration(expectedConfig, out verifyReport, out actualConfig))
                     {
-                        statusLabel.Text = "Verification failed.";
-                        GuiLogger.Log("Safe apply verification failed. " + verifyReport.Replace(Environment.NewLine, " | "));
-                        MessageBox.Show(verifyReport, "Safe Apply Verification Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
-                        return;
+                        verifyFailure = verifyReport;
                     }
+                    else
+                    {
+                        verifiedConfig = actualConfig;
+                    }
+                }
+            },
+            delegate
+            {
+                if (!string.IsNullOrEmpty(verifyFailure))
+                {
+                    statusLabel.Text = "Verification failed.";
+                    GuiLogger.Log("Safe apply verification failed. " + verifyFailure.Replace(Environment.NewLine, " | "));
+                    MessageBox.Show(verifyFailure, "Safe Apply Verification Failed", MessageBoxButtons.OK, MessageBoxIcon.Warning);
+                    return;
+                }
+
+                if (verifyEnabled && verifiedConfig != null)
+                {
+                    currentConfig = verifiedConfig;
+                    RefreshList();
                     GuiLogger.Log("Safe apply verification passed.");
+                }
+                else
+                {
+                    currentConfig = expectedConfig;
                 }
 
                 statusLabel.Text = "Saved successfully.";
                 GuiLogger.Log("Configuration written to device.");
                 ShowInfo("Configuration saved to device!", "Configuration saved.");
-            }
-            catch (Exception ex)
+            },
+            delegate(Exception ex)
             {
                 MessageBox.Show("Error writing: " + ex.Message);
                 statusLabel.Text = "Write failed.";
                 GuiLogger.LogException("Apply write failed", ex);
-            }
+            });
         }
 
         private void ResetButton_Click(object sender, EventArgs e)
@@ -1398,45 +1566,69 @@ namespace GpdGui
                     statusLabel.Text = "Reset failed.";
                     return;
                 }
-
-                try
+                Config defaultConfig = null;
+                RunBackgroundAction("Restoring defaults...", delegate
                 {
                     string[] lines = System.IO.File.ReadAllLines(mappingPath);
-                    Config.LoadFromProfile(currentConfig, lines);
-                    device.WriteConfig(currentConfig.Raw);
+                    Config nextConfig = new Config((byte[])currentConfig.Raw.Clone());
+                    Config.LoadFromProfile(nextConfig, lines);
+                    device.WriteConfig(nextConfig.Raw);
+                    defaultConfig = nextConfig;
+                },
+                delegate
+                {
+                    currentConfig = defaultConfig;
                     RefreshList();
                     statusLabel.Text = "Defaults restored and written to device.";
                     GuiLogger.Log("Defaults restored and written.");
                     ShowInfo("Defaults restored successfully.", "Defaults restored.");
-                }
-                catch (Exception ex)
+                },
+                delegate(Exception ex)
                 {
                     MessageBox.Show("Reset failed: " + ex.Message);
                     statusLabel.Text = "Reset failed.";
                     GuiLogger.LogException("Reset failed", ex);
-                }
+                });
             }
         }
 
         private void ReloadButton_Click(object sender, EventArgs e)
         {
-            if (device == null)
+            GpdDevice activeDevice = device;
+            Config loadedConfig = null;
+            bool createdNewDevice = false;
+
+            RunBackgroundAction("Reading from device...", delegate
             {
-                try
+                if (activeDevice == null)
                 {
-                    device = new GpdDevice();
-                    device.Open();
+                    activeDevice = new GpdDevice();
+                    activeDevice.Open();
+                    createdNewDevice = true;
                 }
-                catch (Exception ex)
+
+                byte[] data = activeDevice.ReadConfig();
+                loadedConfig = new Config(data);
+            },
+            delegate
+            {
+                if (createdNewDevice) device = activeDevice;
+                currentConfig = loadedConfig;
+                RefreshList();
+                statusLabel.Text = string.Format("Configuration loaded. Firmware: {0}", device.FirmwareVersion);
+                SetConnectedState(true);
+            },
+            delegate(Exception ex)
+            {
+                if (createdNewDevice && activeDevice != null)
                 {
-                    MessageBox.Show("Could not connect to device: " + ex.Message);
-                    statusLabel.Text = "Disconnected.";
-                    SetConnectedState(false);
-                    GuiLogger.LogException("Reload connection failed", ex);
-                    return;
+                    activeDevice.Dispose();
                 }
-            }
-            LoadConfig();
+                MessageBox.Show("Could not read device: " + ex.Message);
+                statusLabel.Text = "Read failed.";
+                SetConnectedState(device != null && currentConfig != null);
+                GuiLogger.LogException("Reload failed", ex);
+            });
         }
 
         protected override void OnFormClosed(FormClosedEventArgs e)
