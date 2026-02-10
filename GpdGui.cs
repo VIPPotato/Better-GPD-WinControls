@@ -344,6 +344,13 @@ namespace GpdGui
 
             try
             {
+                // Ensure GitHub HTTPS handshake works on older .NET defaults.
+                ServicePointManager.SecurityProtocol =
+                    ServicePointManager.SecurityProtocol |
+                    (SecurityProtocolType)192 |   // TLS 1.0
+                    (SecurityProtocolType)768 |   // TLS 1.1
+                    (SecurityProtocolType)3072;   // TLS 1.2
+
                 using (WebClient client = new WebClient())
                 {
                     client.Headers[HttpRequestHeader.UserAgent] = "Better-GPD-WinControls/" + CurrentAppVersion;
